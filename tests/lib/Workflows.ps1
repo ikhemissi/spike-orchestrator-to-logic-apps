@@ -1,3 +1,5 @@
+# Workflow control for the test runner: trigger, poll, read and resubmit runs through the Logic App management API.
+
 $script:LogicAppsManagementApiVersion = '2018-11-01' # VERIFY: confirm the Standard workflow management API version and URL shape.
 
 function Invoke-AzCommand {

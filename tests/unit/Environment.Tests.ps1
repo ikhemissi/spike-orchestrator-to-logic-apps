@@ -2,6 +2,10 @@ BeforeAll {
     . (Join-Path $PSScriptRoot '../lib/Environment.ps1')
 }
 
+AfterAll {
+    Remove-Item Env:RUNNER_TEST_SETTING -ErrorAction SilentlyContinue
+}
+
 Describe 'Get-TestEnvironment' {
     BeforeEach {
         Remove-Item Env:RUNNER_TEST_SETTING -ErrorAction SilentlyContinue

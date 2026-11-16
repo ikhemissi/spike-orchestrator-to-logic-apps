@@ -24,4 +24,59 @@ Describe 'Partner file helpers' {
             $Arguments -contains '--list-only' -and $Arguments -notcontains '--ftp-pasv'
         }
     }
+
+    It 'signs in to SFTP with a private key when one is given' {
+        Mock Invoke-CurlCommand { return @() }
+
+        Get-PartnerFile -Url 'sftp://partner.example/outbound/' -UserName 'partner-b' -PrivateKeyPath '/keys/partner-b' | Out-Null
+
+        Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
+            ($Arguments -join ' ') -match '--user partner-b: --key /keys/partner-b'
+        }
+    }
+
+    It 'deletes an FTP file with DELE against its parent folder' {
+        Mock Invoke-CurlCommand { return @() }
+
+        Remove-PartnerFile -Url 'ftp://partner.example/outbound/old%20file.csv' -Confirm:$false
+
+        Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
+            $Arguments[-1] -eq 'ftp://partner.example/outbound/' -and
+            $Arguments -contains 'DELE /outbound/old file.csv'
+        }
+    }
+
+    It 'deletes an SFTP file with rm against its parent folder' {
+        Mock Invoke-CurlCommand { return @() }
+
+        Remove-PartnerFile -Url 'sftp://partner.example/outbound/old.csv' -Confirm:$false
+
+        Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
+            $Arguments[-1] -eq 'sftp://partner.example/outbound/' -and $Arguments -contains 'rm /outbound/old.csv'
+        }
+    }
+}
+
+Describe 'NAS file helpers' {
+    It 'lists NAS files with a PowerShell Run Command, since the NAS VM runs Windows' {
+        $nasEnvironment = @{ AZURE_RESOURCE_GROUP = 'rg-test'; NAS_VM_NAME = 'vm-nas01' }
+        $encodedNames = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("a.csv`nb.csv"))
+        Mock Invoke-AzCommand { ConvertTo-Json @{ value = @(@{ message = "RESULT:$encodedNames" }) } -Depth 5 }
+
+        $files = Get-NasFile -Environment $nasEnvironment -Path 'D:\share\j4\finance'
+
+        $files | Should -Be @('a.csv', 'b.csv')
+        Should -Invoke Invoke-AzCommand -Times 1 -ParameterFilter {
+            $Arguments -contains 'RunPowerShellScript' -and $Arguments -contains 'Path=D:\share\j4\finance'
+        }
+    }
+
+    It 'writes NAS file content as base64 and checks the confirmation' {
+        $nasEnvironment = @{ AZURE_RESOURCE_GROUP = 'rg-test'; NAS_VM_NAME = 'vm-nas01' }
+        Mock Invoke-AzCommand { ConvertTo-Json @{ value = @(@{ message = 'RESULT:written' }) } -Depth 5 }
+
+        Write-NasFile -Environment $nasEnvironment -Path 'D:\share\in.csv' -Content ([Text.Encoding]::UTF8.GetBytes('id'))
+
+        Should -Invoke Invoke-AzCommand -Times 1 -ParameterFilter { $Arguments -contains 'ContentBase64=aWQ=' }
+    }
 }

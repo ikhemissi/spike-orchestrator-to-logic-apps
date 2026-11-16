@@ -1,3 +1,5 @@
+# Test report for the runner: one summary table per run, appended to docs/TEST-REPORT.md as evidence.
+
 function ConvertTo-ReportCell {
     param([object]$Value)
 
@@ -17,7 +19,7 @@ function Format-TestSummary {
     )
     foreach ($result in $Results) {
         $actions = @{}
-        foreach ($action in @($result.Actions)) {
+        foreach ($action in @($result.Actions | Where-Object { $_ })) {
             $actions[$action.name] = $action.properties.status
         }
         $cells = @(
@@ -45,12 +47,15 @@ function Write-TestReport {
     if ($parent -and -not (Test-Path -LiteralPath $parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    $report = "# Test report`n`nGenerated $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz').`n`n$(Format-TestSummary -Results $Results)`n"
+    # Each run appends its own section, so earlier evidence stays in the report.
+    $runSection = "## Run $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')`n`n$(Format-TestSummary -Results $Results)`n"
+    $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
-        [IO.File]::AppendAllText($Path, [Environment]::NewLine + $report, [Text.UTF8Encoding]::new($false))
+        [IO.File]::AppendAllText($Path, "`n" + $runSection, $utf8WithoutBom)
     }
     else {
-        Set-Content -LiteralPath $Path -Value $report -Encoding utf8 -NoNewline
+        [IO.File]::WriteAllText($Path, "# Test report`n`n" + $runSection, $utf8WithoutBom)
     }
+    return $runSection
     return $report
 }

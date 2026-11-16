@@ -1,3 +1,5 @@
+# File checks for the test runner: partner FTP/SFTP with curl, the Windows NAS with VM Run Command, blobs with Entra sign-in.
+
 function Invoke-CurlCommand {
     param([Parameter(Mandatory)][string[]]$Arguments)
 
@@ -9,19 +11,37 @@ function Invoke-CurlCommand {
     return $output
 }
 
+function Get-CurlAuthenticationArgument {
+    # Partner A (FTP) signs in with a password, partner B (SFTP) with an SSH key (SPEC section 3).
+    param(
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$UserName,
+        [string]$PrivateKeyPath
+    )
+
+    if ($Credential) {
+        $password = $Credential.GetNetworkCredential().Password
+        return @('--user', "$($Credential.UserName):$password")
+    }
+    if ($PrivateKeyPath) {
+        return @('--user', "$($UserName):", '--key', $PrivateKeyPath)
+    }
+    return @()
+}
+
 function Get-PartnerFile {
     param(
         [Parameter(Mandatory)][string]$Url,
-        [System.Management.Automation.PSCredential]$Credential
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$UserName,
+        [string]$PrivateKeyPath
     )
 
     $arguments = @('--silent', '--show-error', '--list-only')
     if ($Url -match '^ftp://') {
         $arguments += '--ftp-pasv'
     }
-    if ($Credential) {
-        $arguments += @('--user', "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)")
-    }
+    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $Url
     return @(Invoke-CurlCommand -Arguments $arguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
@@ -30,7 +50,9 @@ function Send-PartnerFile {
     param(
         [Parameter(Mandatory)][string]$LocalPath,
         [Parameter(Mandatory)][string]$DestinationUrl,
-        [System.Management.Automation.PSCredential]$Credential
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$UserName,
+        [string]$PrivateKeyPath
     )
 
     if (-not (Test-Path -LiteralPath $LocalPath -PathType Leaf)) {
@@ -38,9 +60,7 @@ function Send-PartnerFile {
     }
 
     $arguments = @('--silent', '--show-error', '--upload-file', $LocalPath)
-    if ($Credential) {
-        $arguments += @('--user', "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)")
-    }
+    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $DestinationUrl
     Invoke-CurlCommand -Arguments $arguments | Out-Null
 }
@@ -49,40 +69,43 @@ function Remove-PartnerFile {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)][string]$Url,
-        [System.Management.Automation.PSCredential]$Credential
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$UserName,
+        [string]$PrivateKeyPath
     )
 
     if (-not $PSCmdlet.ShouldProcess($Url, 'Delete remote file')) {
         return
     }
 
-    $arguments = @('--silent', '--show-error')
-    if ($Credential) {
-        $arguments += @('--user', "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)")
-    }
-    if ($Url -match '^sftp://') {
-        $arguments += @('--quote', "rm $([uri]::UnescapeDataString(([uri]$Url).AbsolutePath))")
-    }
-    else {
-        $arguments += @('--quote', "DELE $([uri]::UnescapeDataString(([uri]$Url).AbsolutePath))")
-    }
-    $arguments += $Url
+    # The delete runs as a quote command against the parent folder: on the file URL itself,
+    # curl would then try to download the file it has just deleted and fail.
+    # VERIFY: vsftpd and OpenSSH accept the absolute URL path (FTP URL paths are relative to the login folder).
+    $fileUri = [uri]$Url
+    $filePath = [uri]::UnescapeDataString($fileUri.AbsolutePath)
+    $folderUrl = $Url.Substring(0, $Url.LastIndexOf('/') + 1)
+    $deleteCommand = if ($fileUri.Scheme -eq 'sftp') { "rm $filePath" } else { "DELE $filePath" }
+
+    $arguments = @('--silent', '--show-error', '--list-only', '--quote', $deleteCommand)
+    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
+    $arguments += $folderUrl
     Invoke-CurlCommand -Arguments $arguments | Out-Null
 }
 
 function Invoke-NasCommand {
+    # vm-nas01 is Windows Server 2022 (SPEC section 3), so the commands are PowerShell.
+    # VERIFY: --parameters name=value binds to the script's param() and stdout comes back in value[].message.
     param(
         [Parameter(Mandatory)][hashtable]$Environment,
         [Parameter(Mandatory)][string]$Script,
         [string[]]$Parameters = @()
     )
 
-    # VERIFY: confirm Linux Run Command parameter passing and output envelope for the selected NAS VM image.
     $arguments = @(
         'vm', 'run-command', 'invoke',
         '--resource-group', $Environment.AZURE_RESOURCE_GROUP,
         '--name', $Environment.NAS_VM_NAME,
-        '--command-id', 'RunShellScript',
+        '--command-id', 'RunPowerShellScript',
         '--scripts', $Script,
         '--output', 'json'
     )
@@ -91,11 +114,7 @@ function Invoke-NasCommand {
         $arguments += $Parameters
     }
 
-    $response = Invoke-AzCommand -Arguments $arguments
-    $json = ($response -join "`n").Trim()
-    if ([string]::IsNullOrWhiteSpace($json)) {
-        return ''
-    }
+    $json = ((Invoke-AzCommand -Arguments $arguments) -join "`n").Trim()
     try {
         return ConvertFrom-Json -InputObject $json -AsHashtable -ErrorAction Stop
     }
@@ -105,14 +124,15 @@ function Invoke-NasCommand {
 }
 
 function Get-NasCommandResult {
+    # The NAS scripts print one 'RESULT:<value>' line so their answer can be told apart from other output.
     param([Parameter(Mandatory)][hashtable]$Response)
 
-    $messages = @($Response.value | ForEach-Object { $_.message })
-    $resultLine = $messages -split "`n" | Where-Object { $_ -match '^RESULT:' } | Select-Object -Last 1
+    $messages = @($Response.value | ForEach-Object { $_.message }) -join "`n"
+    $resultLine = $messages -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -like 'RESULT:*' } | Select-Object -Last 1
     if (-not $resultLine) {
-        throw "NAS command did not return a RESULT line. $($messages -join "`n")"
+        throw "NAS command did not return a RESULT line. $messages"
     }
-    return [string]$resultLine.Substring(7).Trim()
+    return $resultLine.Substring('RESULT:'.Length)
 }
 
 function Get-NasFile {
@@ -121,11 +141,15 @@ function Get-NasFile {
         [Parameter(Mandatory)][string]$Path
     )
 
-    $scriptText = 'set -eu; printf "RESULT:"; find "$1" -maxdepth 1 -type f -printf "%f\n" | base64 -w0; printf "\n"'
-    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("path=$Path")
-    $encoded = Get-NasCommandResult -Response $response
-    $decoded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
-    return @($decoded -split "`n" | Where-Object { $_ })
+    $scriptText = @'
+param([string]$Path)
+$names = @(Get-ChildItem -LiteralPath $Path -File | ForEach-Object { $_.Name }) -join "`n"
+'RESULT:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($names))
+'@
+    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path")
+    $encodedNames = Get-NasCommandResult -Response $response
+    $names = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedNames))
+    return @($names -split "`n" | Where-Object { $_ })
 }
 
 function Read-NasFile {
@@ -134,22 +158,30 @@ function Read-NasFile {
         [Parameter(Mandatory)][string]$Path
     )
 
-    $scriptText = 'set -eu; printf "RESULT:"; base64 -w0 "$1"; printf "\n"'
-    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("path=$Path")
-    $encoded = Get-NasCommandResult -Response $response
-    return [Convert]::FromBase64String($encoded)
+    $scriptText = @'
+param([string]$Path)
+'RESULT:' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($Path))
+'@
+    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path")
+    return [Convert]::FromBase64String((Get-NasCommandResult -Response $response))
 }
 
 function Write-NasFile {
+    # VERIFY: the base64 content travels on the command line, so this suits small test files only.
     param(
         [Parameter(Mandatory)][hashtable]$Environment,
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][byte[]]$Content
     )
 
+    $scriptText = @'
+param([string]$Path, [string]$ContentBase64)
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+[IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($ContentBase64))
+'RESULT:written'
+'@
     $contentBase64 = [Convert]::ToBase64String($Content)
-    $scriptText = 'set -eu; mkdir -p "$(dirname "$1")"; printf "%s" "$2" | base64 -d > "$1"; printf "RESULT:written\n"'
-    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("path=$Path", "content=$contentBase64")
+    $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path", "ContentBase64=$contentBase64")
     if ((Get-NasCommandResult -Response $response) -ne 'written') {
         throw "NAS command did not confirm writing '$Path'."
     }
@@ -172,8 +204,8 @@ function Get-BlobFile {
     if ($Prefix) {
         $arguments += @('--prefix', $Prefix)
     }
-    $response = Invoke-AzCommand -Arguments $arguments
-    return @((($response -join "`n") | ConvertFrom-Json -AsHashtable).name)
+    $json = (Invoke-AzCommand -Arguments $arguments) -join "`n"
+    return @(ConvertFrom-Json -InputObject $json -AsHashtable | ForEach-Object { $_.name })
 }
 
 function Read-BlobFile {

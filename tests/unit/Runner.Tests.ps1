@@ -39,4 +39,17 @@ function Restore { Set-Content -LiteralPath '__RESTORE_MARKER__' -Value 'restore
         Should -Invoke Start-Workflow -Times 1
         Should -Invoke Wait-WorkflowRun -Times 1
     }
+
+    It 'fails without running anything when -Only names a scenario that does not exist' {
+        $scenarioRoot = Join-Path $TestDrive 'only-scenarios'
+        New-Item -ItemType Directory -Path $scenarioRoot | Out-Null
+        Set-Content -LiteralPath (Join-Path $scenarioRoot 'T02-ftp.ps1') -Value 'function Reset {}'
+        Mock Get-TestEnvironment { return @{} }
+        Mock Start-Workflow {}
+
+        $exitCode = Invoke-TestRunner -ScenarioRoot $scenarioRoot -ReportPath (Join-Path $TestDrive 'r.md') -Only 'T02', 'T03' -ErrorAction SilentlyContinue
+
+        $exitCode | Should -Be 1
+        Should -Invoke Start-Workflow -Times 0
+    }
 }

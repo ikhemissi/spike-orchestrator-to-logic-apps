@@ -1,3 +1,5 @@
+# Test settings: the azd values of the SPEC contract, from the environment or `azd env get-values`.
+
 function Invoke-AzdGetValue {
     $output = & azd env get-values 2>&1
     if ($LASTEXITCODE -ne 0) {

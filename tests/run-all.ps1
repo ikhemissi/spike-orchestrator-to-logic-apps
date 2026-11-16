@@ -1,3 +1,5 @@
+# Runs the SPEC section 8 scenarios: reset, seed, fault, trigger, wait, assert, evidence, restore; writes docs/TEST-REPORT.md.
+# Exits 1 when a mandatory scenario (T01-T12, T15) fails.
 param(
     [string[]]$Only,
     [switch]$IncludeAlerts
@@ -14,41 +16,122 @@ $script:MandatoryScenarioNames = @(
     'T07', 'T08', 'T09', 'T10', 'T11', 'T12', 'T15'
 )
 
+# Each scenario file defines these steps as functions; InjectFault and GetTriggerName are optional.
+$script:RequiredScenarioSteps = @('Reset', 'Seed', 'GetWorkflowName', 'Assert', 'GetEvidence', 'Restore')
+
+function Test-ScenarioStep {
+    param([Parameter(Mandatory)][string]$Name)
+
+    return [bool](Get-Command -Name $Name -CommandType Function -ErrorAction SilentlyContinue)
+}
+
 function Invoke-ScenarioStep {
+    # Steps may write stray output to the pipeline; only their last value is their answer.
     param(
         [Parameter(Mandatory)][string]$Name,
         [object[]]$Arguments = @()
     )
 
-    $step = Get-Command -Name $Name -CommandType Function -ErrorAction SilentlyContinue
-    if (-not $step) {
+    if (-not (Test-ScenarioStep -Name $Name)) {
         throw "Scenario must define a '$Name' function."
     }
 
-    $output = & $step.Name @Arguments
-    if ($output -is [System.Collections.IDictionary]) {
-        return $output
+    $output = @(& $Name @Arguments)
+    if ($output.Count -eq 0) {
+        return $null
     }
-    if ($output -is [array]) {
-        if ($output.Count -gt 0) {
-            return $output[-1]
+    return , $output[-1]
+}
+
+function Invoke-ScenarioSetup {
+    foreach ($requiredStep in $script:RequiredScenarioSteps) {
+        if (-not (Test-ScenarioStep -Name $requiredStep)) {
+            throw "Scenario must define a '$requiredStep' function."
         }
-        return
     }
-    if ($output.Count -gt 0) {
-        return $output
+
+    Invoke-ScenarioStep -Name 'Reset' | Out-Null
+    Invoke-ScenarioStep -Name 'Seed' | Out-Null
+    if (Test-ScenarioStep -Name 'InjectFault') {
+        Invoke-ScenarioStep -Name 'InjectFault' | Out-Null
     }
 }
 
-function Invoke-OneScenario {
+function Invoke-ScenarioWorkflow {
     param(
-        [Parameter(Mandatory)][IO.FileInfo]$ScenarioFile,
-        [Parameter(Mandatory)][hashtable]$Environment
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Result
     )
 
-    $scenarioName = [IO.Path]::GetFileNameWithoutExtension($ScenarioFile.Name)
-    $result = [ordered]@{
-        Name = $scenarioName
+    $workflowName = [string](Invoke-ScenarioStep -Name 'GetWorkflowName')
+    $triggerName = 'Recurrence'
+    if (Test-ScenarioStep -Name 'GetTriggerName') {
+        $triggerName = [string](Invoke-ScenarioStep -Name 'GetTriggerName')
+    }
+
+    $startedRun = Start-Workflow -Environment $Environment -WorkflowName $workflowName -TriggerName $triggerName
+    $Result.RunId = $startedRun.RunId
+    $run = Wait-WorkflowRun -Environment $Environment -Run $startedRun
+    $Result.Status = $run.Status
+    $Result.Actions = $run.Actions
+    $Result.TrackedProperties = $run.TrackedProperties
+    return $run
+}
+
+function Get-ScenarioAssertionError {
+    # Returns the reason the assertion failed, or nothing, so evidence is still collected on failure.
+    param([Parameter(Mandatory)][object]$Run)
+
+    try {
+        $assertion = Invoke-ScenarioStep -Name 'Assert' -Arguments @($Run)
+    }
+    catch {
+        return $_.Exception.Message
+    }
+    if ($assertion -is [bool] -and -not $assertion) {
+        return 'The scenario assertion returned false.'
+    }
+    return $null
+}
+
+function Add-ScenarioEvidence {
+    param(
+        [Parameter(Mandatory)][object]$Run,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Result
+    )
+
+    $evidence = Invoke-ScenarioStep -Name 'GetEvidence' -Arguments @($Run)
+    if ($evidence -isnot [System.Collections.IDictionary]) {
+        return
+    }
+    if ($evidence.Contains('FileListings')) {
+        $Result.FileListings = $evidence.FileListings
+    }
+    if ($evidence.Contains('Details')) {
+        $Result.Details = [string]$evidence.Details
+    }
+}
+
+function Invoke-ScenarioRestore {
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Result)
+
+    if (-not (Test-ScenarioStep -Name 'Restore')) {
+        return
+    }
+    try {
+        Invoke-ScenarioStep -Name 'Restore' | Out-Null
+    }
+    catch {
+        $Result.Details = ("$($Result.Details) Restore failed: $($_.Exception.Message)").Trim()
+        $Result.Result = 'Failed'
+    }
+}
+
+function Get-EmptyScenarioResult {
+    param([Parameter(Mandatory)][string]$Name)
+
+    return [ordered]@{
+        Name = $Name
         Result = 'Failed'
         RunId = ''
         Status = ''
@@ -57,58 +140,27 @@ function Invoke-OneScenario {
         FileListings = @{}
         Details = ''
     }
-    $run = $null
-    $scenarioLoaded = $false
+}
 
+function Invoke-OneScenario {
+    # The scenario is dot-sourced here, so its step functions live only for this call
+    # and cannot leak into the next scenario.
+    param(
+        [Parameter(Mandatory)][IO.FileInfo]$ScenarioFile,
+        [Parameter(Mandatory)][hashtable]$Environment
+    )
+
+    $result = Get-EmptyScenarioResult -Name ([IO.Path]::GetFileNameWithoutExtension($ScenarioFile.Name))
+    $isScenarioLoaded = $false
     try {
         . $ScenarioFile.FullName
-        $scenarioLoaded = $true
+        $isScenarioLoaded = $true
         $script:ScenarioEnvironment = $Environment
 
-        foreach ($requiredStep in @('Reset', 'Seed', 'GetWorkflowName', 'Assert', 'GetEvidence', 'Restore')) {
-            if (-not (Get-Command -Name $requiredStep -CommandType Function -ErrorAction SilentlyContinue)) {
-                throw "Scenario must define a '$requiredStep' function."
-            }
-        }
-
-        Invoke-ScenarioStep -Name 'Reset' | Out-Null
-        Invoke-ScenarioStep -Name 'Seed' | Out-Null
-        if (Get-Command -Name 'InjectFault' -CommandType Function -ErrorAction SilentlyContinue) {
-            Invoke-ScenarioStep -Name 'InjectFault' | Out-Null
-        }
-
-        $workflowName = [string](Invoke-ScenarioStep -Name 'GetWorkflowName')
-        $triggerName = 'Recurrence'
-        if (Get-Command -Name 'GetTriggerName' -CommandType Function -ErrorAction SilentlyContinue) {
-            $triggerName = [string](Invoke-ScenarioStep -Name 'GetTriggerName')
-        }
-        $startedRun = Start-Workflow -Environment $Environment -WorkflowName $workflowName -TriggerName $triggerName
-        $result.RunId = $startedRun.RunId
-        $run = Wait-WorkflowRun -Environment $Environment -Run $startedRun
-        $result.Status = $run.Status
-        $result.Actions = $run.Actions
-        $result.TrackedProperties = $run.TrackedProperties
-
-        $assertionError = $null
-        try {
-            $assertion = Invoke-ScenarioStep -Name 'Assert' -Arguments @($run)
-            if ($assertion -is [bool] -and -not $assertion) {
-                $assertionError = 'The scenario assertion returned false.'
-            }
-        }
-        catch {
-            $assertionError = $_.Exception.Message
-        }
-
-        $evidence = Invoke-ScenarioStep -Name 'GetEvidence' -Arguments @($run)
-        if ($evidence -is [System.Collections.IDictionary]) {
-            if ($evidence.Contains('FileListings')) {
-                $result.FileListings = $evidence.FileListings
-            }
-            if ($evidence.Contains('Details')) {
-                $result.Details = [string]$evidence.Details
-            }
-        }
+        Invoke-ScenarioSetup
+        $run = Invoke-ScenarioWorkflow -Environment $Environment -Result $result
+        $assertionError = Get-ScenarioAssertionError -Run $run
+        Add-ScenarioEvidence -Run $run -Result $result
         if ($assertionError) {
             throw $assertionError
         }
@@ -116,24 +168,10 @@ function Invoke-OneScenario {
     }
     catch {
         $result.Details = $_.Exception.Message
-        if ($run) {
-            $result.Status = $run.Status
-        }
     }
     finally {
-        if ($scenarioLoaded -and (Get-Command -Name 'Restore' -CommandType Function -ErrorAction SilentlyContinue)) {
-            try {
-                Invoke-ScenarioStep -Name 'Restore' | Out-Null
-            }
-            catch {
-                if ($result.Details) {
-                    $result.Details += " Restore failed: $($_.Exception.Message)"
-                }
-                else {
-                    $result.Details = "Restore failed: $($_.Exception.Message)"
-                }
-                $result.Result = 'Failed'
-            }
+        if ($isScenarioLoaded) {
+            Invoke-ScenarioRestore -Result $result
         }
     }
 
@@ -160,11 +198,41 @@ function Get-TestScenarioFile {
     if ($Only) {
         $selected = @($Only | ForEach-Object { $_.Trim().ToUpperInvariant() })
         $files = @($files | Where-Object {
-            $scenarioId = ([regex]::Match($_.BaseName, '^T\d{2}')).Value
-            $selected -contains $scenarioId
+            $selected -contains (Get-ScenarioId -Name $_.BaseName)
         })
     }
     return $files
+}
+
+function Get-ScenarioId {
+    param([Parameter(Mandatory)][string]$Name)
+
+    return ([regex]::Match($Name, '^T\d{2}')).Value
+}
+
+function Assert-RequestedScenarioFound {
+    param(
+        [Parameter(Mandatory)][object[]]$ScenarioFiles,
+        [string[]]$Only
+    )
+
+    if (-not $Only) {
+        return
+    }
+    $foundIds = @($ScenarioFiles | ForEach-Object { Get-ScenarioId -Name $_.BaseName })
+    $missingIds = @($Only | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $foundIds -notcontains $_ })
+    if ($missingIds.Count -gt 0) {
+        throw "Scenario(s) not found: $($missingIds -join ', ')"
+    }
+}
+
+function Test-MandatoryScenarioFailed {
+    param([Parameter(Mandatory)][object[]]$Results)
+
+    $mandatoryFailures = @($Results | Where-Object {
+        $script:MandatoryScenarioNames -contains (Get-ScenarioId -Name $_.Name) -and $_.Result -ne 'Passed'
+    })
+    return $mandatoryFailures.Count -gt 0
 }
 
 function Invoke-TestRunner {
@@ -187,28 +255,15 @@ function Invoke-TestRunner {
         if ($scenarioFiles.Count -eq 0) {
             throw 'No scenario scripts matched the requested selection.'
         }
-        if ($Only) {
-            $found = @($scenarioFiles | ForEach-Object { ([regex]::Match($_.BaseName, '^T\d{2}')).Value })
-            $missing = @($Only | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $found -notcontains $_ })
-            if ($missing.Count -gt 0) {
-                throw "Scenario(s) not found: $($missing -join ', ')"
-            }
-        }
+        Assert-RequestedScenarioFound -ScenarioFiles $scenarioFiles -Only $Only
 
-        $results = @()
-        foreach ($scenarioFile in $scenarioFiles) {
-            $results += Invoke-OneScenario -ScenarioFile $scenarioFile -Environment $environment
-        }
-
-        $report = Format-TestSummary -Results $results
-        Write-Information $report -InformationAction Continue
-        Write-TestReport -Results $results -Path $ReportPath | Out-Null
-
-        $mandatoryFailures = @($results | Where-Object {
-            $scenarioId = ([regex]::Match($_.Name, '^T\d{2}')).Value
-            $script:MandatoryScenarioNames -contains $scenarioId -and $_.Result -ne 'Passed'
+        $results = @(foreach ($scenarioFile in $scenarioFiles) {
+            Invoke-OneScenario -ScenarioFile $scenarioFile -Environment $environment
         })
-        if ($mandatoryFailures.Count -gt 0) {
+
+        Write-Information (Format-TestSummary -Results $results) -InformationAction Continue
+        Write-TestReport -Results $results -Path $ReportPath | Out-Null
+        if (Test-MandatoryScenarioFailed -Results $results) {
             return 1
         }
         return 0
