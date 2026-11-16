@@ -1,3 +1,6 @@
+# Checks the synthetic test data of SPEC section 7: every file exists, CSV headers and row counts, PDF signatures, XML,
+# and that the Bash and PowerShell generators write the same large file (same SHA-256).
+
 BeforeAll {
     $script:repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
     $script:testDataRoot = Join-Path $script:repositoryRoot 'test-data'
