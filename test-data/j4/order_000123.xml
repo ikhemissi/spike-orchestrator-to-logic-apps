@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<order id="000123">
+  <partnerId>PARTNER-A</partnerId>
+  <currency>EUR</currency>
+  <items>
+    <item sku="SYN-001" quantity="3" unitPrice="24.50" />
+    <item sku="SYN-002" quantity="1" unitPrice="89.00" />
+  </items>
+</order>
