@@ -44,6 +44,7 @@ step "Terraform"
 terraform fmt -check -recursive infra
 terraform -chdir=infra init -backend=false -input=false >/dev/null
 terraform -chdir=infra validate
+if [[ -d infra/tests ]]; then terraform -chdir=infra test; fi
 for module_dir in infra/modules/*/; do
   if [[ -d "$module_dir/tests" ]]; then
     (cd "$module_dir" && terraform init -backend=false -input=false >/dev/null && terraform test)
