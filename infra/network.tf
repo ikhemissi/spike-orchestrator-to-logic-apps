@@ -1,27 +1,36 @@
+# The networks of SPEC §3.1: the spoke (Logic App integration with NAT Gateway egress, private endpoints), the
+# simulated datacenter peered to it (the VPN/ExpressRoute stand-in), the unpeered partner network reached over the
+# Internet, the corp.local private DNS zone and the NSGs. The network module is not in this repository yet, so the
+# resources are declared here.
+# Module calls read their subnet from local.network and their private endpoint from local.private_endpoint:
+#   local.network.subnet_ids: subnet ids by role ("container-apps", "private-endpoints", "servers", "partner");
+#   local.private_endpoint: { subnet_id = <the private-endpoints subnet id>, private_dns_zone_ids = <the zones by name> }.
+# Keep local.private_endpoint null or an object built from known values: whether it is null decides at plan time
+# whether the private endpoints exist. It stays null until the privatelink zones are added.
+
 variable "deployer_ip" {
-  description = "Public IPv4 address of the deployer (DEPLOYER_IP), without a CIDR suffix."
+  description = "Public IPv4 address of the deployer (DEPLOYER_IP), without a CIDR suffix; allowed on the partner VM."
   type        = string
 
   validation {
-    condition     = can(cidrhost("${var.deployer_ip}/32", 0))
+    condition     = can(regex("^(\\d{1,3}\\.){3}\\d{1,3}$", var.deployer_ip)) && can(cidrhost("${var.deployer_ip}/32", 0))
     error_message = "deployer_ip must be an IPv4 address without a CIDR suffix."
   }
 }
 
 variable "enable_bastion" {
-  description = "Whether to create the optional AzureBastionSubnet (ENABLE_BASTION)."
-  type        = string
-  default     = "false"
-
-  validation {
-    condition     = contains(["true", "false"], lower(var.enable_bastion))
-    error_message = "enable_bastion must be the string \"true\" or \"false\"."
-  }
+  description = "Create the AzureBastionSubnet in the simulated datacenter (ENABLE_BASTION, \"true\" or \"false\")."
+  # azd passes "true"/"false" strings; Terraform converts them to bool.
+  type    = bool
+  default = false
 }
 
 locals {
   network_tags       = merge(local.tags, { workload = "orchestrator-to-logic-apps" })
   corp_dns_zone_name = "corp.local"
+
+  spoke_logicapp_prefix = "10.10.1.0/26"
+  bastion_prefix        = "10.20.255.0/26"
 
   network = {
     subnet_ids = {
@@ -32,10 +41,18 @@ locals {
     }
   }
   private_endpoint = null
+
+  # The VM NICs join these groups (vms.tf), so the SMB rules target nas01 and hw01 rather than the whole subnet.
+  application_security_group_ids = {
+    nas    = azurerm_application_security_group.nas.id
+    worker = azurerm_application_security_group.worker.id
+  }
+
+  partner_allowed_sources = ["${azurerm_public_ip.nat.ip_address}/32", "${var.deployer_ip}/32"]
 }
 
 resource "azurerm_virtual_network" "spoke" {
-  name                = "vnet-spoke"
+  name                = "vnet-${var.environment_name}-spoke"
   address_space       = ["10.10.0.0/16"]
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
@@ -43,7 +60,7 @@ resource "azurerm_virtual_network" "spoke" {
 }
 
 resource "azurerm_virtual_network" "onprem_sim" {
-  name                = "vnet-onprem-sim"
+  name                = "vnet-${var.environment_name}-onprem-sim"
   address_space       = ["10.20.0.0/16"]
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
@@ -51,7 +68,7 @@ resource "azurerm_virtual_network" "onprem_sim" {
 }
 
 resource "azurerm_virtual_network" "partner" {
-  name                = "vnet-partner"
+  name                = "vnet-${var.environment_name}-partner"
   address_space       = ["10.30.0.0/16"]
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
@@ -62,7 +79,7 @@ resource "azurerm_subnet" "logicapp_int" {
   name                 = "snet-logicapp-int"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.spoke.name
-  address_prefixes     = ["10.10.1.0/26"]
+  address_prefixes     = [local.spoke_logicapp_prefix]
 
   delegation {
     name = "logic-apps"
@@ -91,11 +108,11 @@ resource "azurerm_subnet" "servers" {
 }
 
 resource "azurerm_subnet" "bastion" {
-  count                = lower(var.enable_bastion) == "true" ? 1 : 0
+  count                = var.enable_bastion ? 1 : 0
   name                 = "AzureBastionSubnet"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.onprem_sim.name
-  address_prefixes     = ["10.20.255.0/26"]
+  address_prefixes     = [local.bastion_prefix]
 }
 
 resource "azurerm_subnet" "partner" {
@@ -120,7 +137,7 @@ resource "azurerm_virtual_network_peering" "onprem_sim_to_spoke" {
 }
 
 resource "azurerm_public_ip" "nat" {
-  name                = "pip-nat"
+  name                = "pip-${var.environment_name}-nat"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   allocation_method   = "Static"
@@ -129,7 +146,7 @@ resource "azurerm_public_ip" "nat" {
 }
 
 resource "azurerm_nat_gateway" "logicapp" {
-  name                = "nat-logicapp"
+  name                = "ng-${var.environment_name}-logicapp"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   sku_name            = "Standard"
@@ -171,35 +188,35 @@ resource "azurerm_private_dns_zone_virtual_network_link" "onprem_sim" {
 }
 
 resource "azurerm_network_security_group" "servers" {
-  name                = "nsg-servers"
+  name                = "nsg-${var.environment_name}-servers"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.network_tags
 }
 
 resource "azurerm_network_security_group" "partner" {
-  name                = "nsg-partner"
+  name                = "nsg-${var.environment_name}-partner"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.network_tags
 }
 
 resource "azurerm_application_security_group" "nas" {
-  name                = "asg-nas"
+  name                = "asg-${var.environment_name}-nas"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.network_tags
 }
 
 resource "azurerm_application_security_group" "worker" {
-  name                = "asg-worker"
+  name                = "asg-${var.environment_name}-worker"
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.network_tags
 }
 
 resource "azurerm_network_security_rule" "servers_bastion" {
-  count                       = lower(var.enable_bastion) == "true" ? 1 : 0
+  count                       = var.enable_bastion ? 1 : 0
   name                        = "Allow-Bastion-Management"
   priority                    = 100
   direction                   = "Inbound"
@@ -207,7 +224,7 @@ resource "azurerm_network_security_rule" "servers_bastion" {
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_ranges     = ["22", "3389"]
-  source_address_prefix       = "10.20.255.0/26"
+  source_address_prefix       = local.bastion_prefix
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.servers.name
@@ -221,14 +238,14 @@ resource "azurerm_network_security_rule" "servers_smb_from_logicapp" {
   protocol                                   = "Tcp"
   source_port_range                          = "*"
   destination_port_range                     = "445"
-  source_address_prefix                      = "10.10.1.0/26"
+  source_address_prefix                      = local.spoke_logicapp_prefix
   destination_application_security_group_ids = [azurerm_application_security_group.nas.id]
   resource_group_name                        = azurerm_resource_group.main.name
   network_security_group_name                = azurerm_network_security_group.servers.name
 }
 
-resource "azurerm_network_security_rule" "servers_smb_between_servers" {
-  name                                       = "Allow-SMB-Between-Servers"
+resource "azurerm_network_security_rule" "servers_smb_from_worker" {
+  name                                       = "Allow-SMB-From-Worker-To-NAS"
   priority                                   = 120
   direction                                  = "Inbound"
   access                                     = "Allow"
@@ -269,43 +286,31 @@ resource "azurerm_network_security_rule" "servers_automation_https" {
   network_security_group_name = azurerm_network_security_group.servers.name
 }
 
-resource "azurerm_network_security_rule" "partner_ftp" {
-  name                        = "Allow-FTP-Control"
+# The partner IP allow-list (SPEC §3.1, test T04): FTP, FTP passive and SFTP only from the NAT Gateway IP (the Logic
+# App's egress) and the deployer; everything else is denied, VirtualNetwork included.
+resource "azurerm_network_security_rule" "partner_allow_list" {
+  name                        = "Allow-FTP-SFTP-From-NAT-And-Deployer"
   priority                    = 100
   direction                   = "Inbound"
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
-  destination_port_range      = "21"
-  source_address_prefix       = "Internet"
+  destination_port_ranges     = ["21", "22", "40000-40100"]
+  source_address_prefixes     = local.partner_allowed_sources
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.partner.name
 }
 
-resource "azurerm_network_security_rule" "partner_ftp_passive" {
-  name                        = "Allow-FTP-Passive"
-  priority                    = 110
+resource "azurerm_network_security_rule" "partner_deny_all" {
+  name                        = "Deny-All-Inbound"
+  priority                    = 4096
   direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
+  access                      = "Deny"
+  protocol                    = "*"
   source_port_range           = "*"
-  destination_port_range      = "40000-40100"
-  source_address_prefix       = "Internet"
-  destination_address_prefix  = "*"
-  resource_group_name         = azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.partner.name
-}
-
-resource "azurerm_network_security_rule" "partner_ssh" {
-  name                        = "Allow-SSH-From-NAT-And-Deployer"
-  priority                    = 120
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "22"
-  source_address_prefixes     = ["${azurerm_public_ip.nat.ip_address}/32", "${var.deployer_ip}/32"]
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.partner.name
