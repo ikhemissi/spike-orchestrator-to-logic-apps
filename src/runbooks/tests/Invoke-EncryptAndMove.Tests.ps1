@@ -9,6 +9,16 @@ BeforeAll {
         & chmod 700 $gpgHome
     }
     $env:GNUPGHOME = $gpgHome
+
+    # Decrypt to a file rather than stdout, so gpg status messages never mix with the plaintext.
+    function Get-DecryptedText([string] $EncryptedPath) {
+        $plainPath = "$EncryptedPath.plain"
+        & gpg --batch --quiet --yes --output $plainPath --decrypt $EncryptedPath 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to decrypt $EncryptedPath"
+        }
+        return Get-Content -LiteralPath $plainPath -Raw
+    }
     $recipient = 'Runbook Test <runbook-test@example.invalid>'
     & gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key $recipient default default 1d 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -58,9 +68,7 @@ BeforeEach {
         (Get-Content -Raw -LiteralPath (Join-Path $target 'hello.txt.gpg.sha256')) | Should -Be $hash
         @(Get-ChildItem -LiteralPath $archive -Filter '*_hello.txt').Count | Should -Be 1
         Test-Path -LiteralPath $sourceFile | Should -BeFalse
-        $decrypted = & gpg --batch --quiet --decrypt (Join-Path $target 'hello.txt.gpg') 2>&1
-        $LASTEXITCODE | Should -Be 0
-        $decrypted | Should -Be 'hello from the runbook'
+        Get-DecryptedText (Join-Path $target 'hello.txt.gpg') | Should -Be 'hello from the runbook'
     }
 
     It 'skips an existing target with the same sidecar hash and archives the source' {
@@ -96,6 +104,15 @@ BeforeEach {
         $result.items[0].result | Should -Be 'failed'
         Test-Path -LiteralPath (Join-Path $source 'a-FAIL.txt') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $target 'b-ok.txt.gpg') | Should -BeTrue
+    }
+
+    It 'treats only the upper-case FAIL marker as a simulated failure' {
+        Set-Content -LiteralPath (Join-Path $source 'failover.txt') -Value 'not a fault'
+
+        $result = & $runbook @parameters | ConvertFrom-Json
+
+        $result.status | Should -Be 'Succeeded'
+        $result.filesProcessed | Should -Be 1
     }
 
     It 'reports every file as failed when SimulateFailure is set' {
@@ -197,8 +214,7 @@ BeforeEach {
 
         $result.filesProcessed | Should -Be 1
         $result.filesSkipped | Should -Be 0
-        $decrypted = & gpg --batch --quiet --decrypt (Join-Path $target 'changed.txt.gpg') 2>&1
-        $decrypted | Should -Be 'new'
+        Get-DecryptedText (Join-Path $target 'changed.txt.gpg') | Should -Be 'new'
     }
 
     It 'throws and preserves the source when encryption fails' {
