@@ -1,0 +1,145 @@
+$ErrorActionPreference = 'Stop'
+
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectDirectory = [System.IO.Path]::GetFullPath(
+    (Join-Path $scriptDirectory '../src/logicapp')
+)
+
+if ([string]::IsNullOrWhiteSpace($env:AZURE_RESOURCE_GROUP)) {
+    throw 'Set AZURE_RESOURCE_GROUP to the Logic App resource group.'
+}
+if ([string]::IsNullOrWhiteSpace($env:LOGIC_APP_NAME)) {
+    throw 'Set LOGIC_APP_NAME to the Logic App name.'
+}
+
+$ignoreFile = Join-Path $projectDirectory '.funcignore'
+if (-not (Test-Path -LiteralPath $ignoreFile -PathType Leaf)) {
+    throw "Missing .funcignore in $projectDirectory"
+}
+
+function Test-FuncIgnore {
+    param(
+        [Parameter(Mandatory)]
+        [string] $RelativePath,
+        [Parameter(Mandatory)]
+        [string[]] $Patterns
+    )
+
+    foreach ($pattern in $Patterns) {
+        $pattern = $pattern.Trim()
+        if ([string]::IsNullOrWhiteSpace($pattern) -or $pattern.StartsWith('#')) {
+            continue
+        }
+
+        $pattern = $pattern.TrimEnd('/')
+        if ($pattern.Contains('/')) {
+            if ($RelativePath -like $pattern) {
+                return $true
+            }
+            continue
+        }
+
+        foreach ($segment in ($RelativePath -split '/')) {
+            if ($segment -like $pattern) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Invoke-Az {
+    param(
+        [Parameter(Mandatory)]
+        [string[]] $Arguments
+    )
+
+    & az @Arguments
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        throw "Azure CLI failed with exit code $LASTEXITCODE."
+    }
+}
+
+$zipPath = Join-Path ([System.IO.Path]::GetTempPath()) "logicapp-deploy-$([guid]::NewGuid()).zip"
+$archive = $null
+
+try {
+    $ignorePatterns = Get-Content -LiteralPath $ignoreFile
+    $filesToZip = @(
+        Get-ChildItem -LiteralPath $projectDirectory -File -Recurse -Force |
+            ForEach-Object {
+                $relativePath = [System.IO.Path]::GetRelativePath(
+                    $projectDirectory,
+                    $_.FullName
+                ).Replace('\', '/')
+                if (-not (Test-FuncIgnore -RelativePath $relativePath -Patterns $ignorePatterns)) {
+                    [pscustomobject]@{
+                        FullName = $_.FullName
+                        RelativePath = $relativePath
+                    }
+                }
+            }
+    )
+
+    if ($filesToZip.Count -eq 0) {
+        throw "No deployable files found in $projectDirectory"
+    }
+
+    Add-Type -AssemblyName System.IO.Compression
+    $archive = [System.IO.Compression.ZipFile]::Open(
+        $zipPath,
+        [System.IO.Compression.ZipArchiveMode]::Create
+    )
+    foreach ($file in $filesToZip) {
+        $entry = $archive.CreateEntry($file.RelativePath)
+        $sourceStream = [System.IO.File]::OpenRead($file.FullName)
+        $destinationStream = $entry.Open()
+        try {
+            $sourceStream.CopyTo($destinationStream)
+        }
+        finally {
+            $destinationStream.Dispose()
+            $sourceStream.Dispose()
+        }
+    }
+    $archive.Dispose()
+    $archive = $null
+
+    Invoke-Az -Arguments @(
+        'logicapp', 'deployment', 'source', 'config-zip',
+        '--resource-group', $env:AZURE_RESOURCE_GROUP,
+        '--name', $env:LOGIC_APP_NAME,
+        '--src', $zipPath
+    )
+    Invoke-Az -Arguments @(
+        'logicapp', 'restart',
+        '--resource-group', $env:AZURE_RESOURCE_GROUP,
+        '--name', $env:LOGIC_APP_NAME
+    )
+
+    $subscriptionId = & az account show --query id --output tsv
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        throw "Azure CLI failed with exit code $LASTEXITCODE."
+    }
+    if ([string]::IsNullOrWhiteSpace($subscriptionId)) {
+        throw 'Azure CLI did not return a subscription ID.'
+    }
+
+    $escapedResourceGroup = [uri]::EscapeDataString($env:AZURE_RESOURCE_GROUP)
+    $escapedLogicAppName = [uri]::EscapeDataString($env:LOGIC_APP_NAME)
+    $workflowApiUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$escapedResourceGroup/providers/Microsoft.Web/sites/$escapedLogicAppName/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
+    Invoke-Az -Arguments @(
+        'rest',
+        '--method', 'get',
+        '--url', $workflowApiUrl
+    )
+}
+finally {
+    if ($null -ne $archive) {
+        $archive.Dispose()
+    }
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+}

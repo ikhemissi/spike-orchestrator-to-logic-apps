@@ -1,0 +1,7 @@
+workflow-designtime/
+local.settings.json
+.vscode/
+__azurite*
+tests/
+*test*
+.funcignore
