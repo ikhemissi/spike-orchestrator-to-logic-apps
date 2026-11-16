@@ -3,5 +3,6 @@ local.settings.json
 .vscode/
 __azurite*
 tests/
-*test*
+*.Tests.ps1
+test-*.sh
 .funcignore

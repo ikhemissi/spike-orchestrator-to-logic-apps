@@ -1,3 +1,4 @@
+# Tests scripts/deploy-logicapp.ps1 with a mocked az: zip contents and command order.
 Describe 'deploy-logicapp.ps1' {
     BeforeAll {
         $script:testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "logicapp-test-$([guid]::NewGuid())"
@@ -22,7 +23,8 @@ Describe 'deploy-logicapp.ps1' {
         Set-Content -LiteralPath (Join-Path $script:projectDirectory 'workflow-designtime/designer.json') -Value '{}'
         Set-Content -LiteralPath (Join-Path $script:projectDirectory 'tests/test-workflow.json') -Value '{}'
         Set-Content -LiteralPath (Join-Path $script:projectDirectory '__azurite_data/blob') -Value 'data'
-        Set-Content -LiteralPath (Join-Path $script:projectDirectory 'readme-test.md') -Value 'test'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $script:projectDirectory 'workflows/latest-orders')
+        Set-Content -LiteralPath (Join-Path $script:projectDirectory 'workflows/latest-orders/workflow.json') -Value '{"definition":{}}'
         Set-Content -LiteralPath (Join-Path $script:projectDirectory 'Workflow.Tests.ps1') -Value 'test'
 
         $env:AZURE_RESOURCE_GROUP = 'rg-test'
@@ -70,6 +72,6 @@ Describe 'deploy-logicapp.ps1' {
         finally {
             $archive.Dispose()
         }
-        $actualFiles | Should -Be @('host.json', 'workflows/ping/workflow.json')
+        $actualFiles | Should -Be @('host.json', 'workflows/latest-orders/workflow.json', 'workflows/ping/workflow.json')
     }
 }

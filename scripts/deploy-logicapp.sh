@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Fallback deployment of src/logicapp without azd (SPEC 2.3): zip honouring .funcignore, deploy, restart, list workflows.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,11 +8,18 @@ project_dir="$(cd -- "$script_dir/../src/logicapp" && pwd)"
 : "${AZURE_RESOURCE_GROUP:?Set AZURE_RESOURCE_GROUP to the Logic App resource group}"
 : "${LOGIC_APP_NAME:?Set LOGIC_APP_NAME to the Logic App name}"
 
+if ! command -v zip >/dev/null; then
+  echo "The zip command is required; install it or use scripts/deploy-logicapp.ps1" >&2
+  exit 1
+fi
+
 if [[ ! -f "$project_dir/.funcignore" ]]; then
   echo "Missing .funcignore in $project_dir" >&2
   exit 1
 fi
 
+# Simplified .funcignore reading (no negation): a pattern with a slash matches the whole relative path,
+# otherwise it matches any path segment. Case-insensitive, like the PowerShell version.
 should_ignore() {
   local relative_path="$1"
   local relative_path_lower="${relative_path,,}"

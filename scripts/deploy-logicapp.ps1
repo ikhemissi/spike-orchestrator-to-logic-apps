@@ -1,3 +1,4 @@
+# Fallback deployment of src/logicapp without azd (SPEC 2.3): zip honouring .funcignore, deploy, restart, list workflows.
 $ErrorActionPreference = 'Stop'
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -17,6 +18,8 @@ if (-not (Test-Path -LiteralPath $ignoreFile -PathType Leaf)) {
     throw "Missing .funcignore in $projectDirectory"
 }
 
+# Simplified .funcignore reading (no negation): a pattern with a slash matches the whole relative path,
+# otherwise it matches any path segment. Case-insensitive, like the bash version.
 function Test-FuncIgnore {
     param(
         [Parameter(Mandatory)]
@@ -126,9 +129,7 @@ try {
         throw 'Azure CLI did not return a subscription ID.'
     }
 
-    $escapedResourceGroup = [uri]::EscapeDataString($env:AZURE_RESOURCE_GROUP)
-    $escapedLogicAppName = [uri]::EscapeDataString($env:LOGIC_APP_NAME)
-    $workflowApiUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$escapedResourceGroup/providers/Microsoft.Web/sites/$escapedLogicAppName/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
+    $workflowApiUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$($env:AZURE_RESOURCE_GROUP)/providers/Microsoft.Web/sites/$($env:LOGIC_APP_NAME)/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
     Invoke-Az -Arguments @(
         'rest',
         '--method', 'get',

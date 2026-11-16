@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Tests scripts/deploy-logicapp.sh with a fake az on PATH: zip contents and command order.
 set -euo pipefail
 
 scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,7 +19,8 @@ printf '{}\n' > "$test_root/src/logicapp/.vscode/settings.json"
 printf '{}\n' > "$test_root/src/logicapp/workflow-designtime/designer.json"
 printf '{}\n' > "$test_root/src/logicapp/tests/test-workflow.json"
 printf 'data\n' > "$test_root/src/logicapp/__azurite_data/blob"
-printf 'test\n' > "$test_root/src/logicapp/readme-test.md"
+mkdir -p "$test_root/src/logicapp/workflows/latest-orders"
+printf '{"definition":{}}\n' > "$test_root/src/logicapp/workflows/latest-orders/workflow.json"
 printf 'test\n' > "$test_root/src/logicapp/Workflow.Tests.ps1"
 mkdir -p "$test_root/bin"
 
@@ -59,7 +61,7 @@ python3 - "$AZ_TEST_ZIP_COPY" <<'PY'
 import sys
 import zipfile
 
-expected = {"host.json", "workflows/ping/workflow.json"}
+expected = {"host.json", "workflows/ping/workflow.json", "workflows/latest-orders/workflow.json"}
 with zipfile.ZipFile(sys.argv[1]) as archive:
     actual = set(archive.namelist())
 if actual != expected:
