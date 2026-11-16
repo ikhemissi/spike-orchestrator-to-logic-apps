@@ -53,6 +53,40 @@ $SourcePath = (Get-Item -LiteralPath $SourcePath).FullName
 $TargetPath = (Get-Item -LiteralPath $TargetPath).FullName
 $ArchivePath = (Get-Item -LiteralPath $ArchivePath).FullName
 $files = @(Get-ChildItem -LiteralPath $SourcePath -File -Force | Sort-Object Name | Select-Object -First $MaxFiles)
+$runAs = & whoami
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not determine the runbook identity.'
+}
+$worker = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [System.Net.Dns]::GetHostName() }
+
+$largestItems = @(
+    foreach ($file in $files) {
+        @{ name = $file.Name; result = 'encrypted'; sha256 = ('F' * 64); error = 'SIMULATED_FAILURE' }
+    }
+)
+$largestErrors = @(
+    foreach ($file in $files) {
+        @{ code = 'SIMULATED_FAILURE'; message = 'Simulated failure.'; file = $file.Name }
+    }
+)
+$largestResult = @{
+    correlationId = $CorrelationId
+    status = 'PartialFailure'
+    worker = $worker
+    runAs = $runAs
+    filesProcessed = $files.Count
+    filesSkipped = $files.Count
+    filesFailed = $files.Count
+    items = $largestItems
+    errors = $largestErrors
+    startedAt = $startedAt.ToString('o')
+    completedAt = $startedAt.ToString('o')
+}
+$largestJson = ConvertTo-Json -InputObject $largestResult -Depth 5 -Compress
+if ([System.Text.Encoding]::UTF8.GetByteCount($largestJson) -ge 1MB) {
+    throw 'Runbook output could exceed the 1 MiB limit; reduce MaxFiles or CorrelationId length.'
+}
+
 $items = [System.Collections.Generic.List[object]]::new()
 $errors = [System.Collections.Generic.List[object]]::new()
 $filesProcessed = 0
@@ -104,11 +138,6 @@ foreach ($file in $files) {
     $items.Add(@{ name = $file.Name; result = 'encrypted'; sha256 = $hash; error = $null })
 }
 
-$runAs = & whoami
-if ($LASTEXITCODE -ne 0) {
-    throw 'Could not determine the runbook identity.'
-}
-$worker = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [System.Net.Dns]::GetHostName() }
 $status = if ($errors.Count -gt 0) { 'PartialFailure' } else { 'Succeeded' }
 $result = @{
     correlationId = $CorrelationId

@@ -174,6 +174,18 @@ BeforeEach {
         $result.completedAt | Should -Not -BeNullOrEmpty
     }
 
+    It 'rejects a potentially oversized result before moving any source files' {
+        $sourceFile = Join-Path $source 'file.txt'
+        Set-Content -LiteralPath $sourceFile -Value 'content'
+        $parameters.CorrelationId = 'x' * 1MB
+
+        { & $runbook @parameters } | Should -Throw '*1 MiB*'
+
+        Test-Path -LiteralPath $sourceFile | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $target -Force).Count | Should -Be 0
+        @(Get-ChildItem -LiteralPath $archive -Force).Count | Should -Be 0
+    }
+
     It 're-encrypts when the source hash differs from the sidecar' {
         $sourceFile = Join-Path $source 'changed.txt'
         Set-Content -LiteralPath $sourceFile -Value 'old' -NoNewline
