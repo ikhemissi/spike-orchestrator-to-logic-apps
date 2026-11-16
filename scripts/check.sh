@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The offline checks of this repository, the same locally, in CI and for the cloud agent: shell and PowerShell lint,
-# Pester tests, JSON validity (workflow definitions, settings), and Terraform format, validation and tests.
+# Pester and shell tests (`*/tests/test-*.sh`), JSON validity (workflow definitions, settings), and Terraform format, validation and tests.
 # No Azure access needed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,6 +27,13 @@ pwsh -NoProfile -Command '
   if (-not $tests) { Write-Host "no Pester tests yet"; return }
   $result = Invoke-Pester -Path $tests -Output Detailed -PassThru
   if ($result.FailedCount -gt 0) { exit 1 }'
+
+step "Shell tests"
+mapfile -t shell_tests < <(git ls-files '*/tests/test-*.sh')
+for shell_test in "${shell_tests[@]}"; do
+  echo "-- $shell_test"
+  bash "$shell_test"
+done
 
 step "JSON files"
 while IFS= read -r json_file; do
