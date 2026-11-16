@@ -1,0 +1,38 @@
+# Environment of the GitHub Copilot cloud agent: the same toolchain as CI (.github/workflows/ci.yml), with every
+# dependency fetched here, before the agent's firewall applies, so that it can run scripts/check.sh. Ubuntu runners
+# already have PowerShell 7, gpg, python3, curl and shellcheck. No Azure access and no secrets: the agent never deploys.
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+permissions:
+  contents: read
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` for the Copilot coding agent to pick it up.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - name: PowerShell modules
+        shell: pwsh
+        run: Install-Module Pester, PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: FTP and SFTP servers for partner-VM tests (run in containers or directly)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q vsftpd openssh-server
+          sudo systemctl disable --now vsftpd ssh || true
+      - name: Terraform providers
+        run: terraform -chdir=infra init -backend=false -input=false

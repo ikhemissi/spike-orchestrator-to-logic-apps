@@ -1,0 +1,35 @@
+{
+  "composition": "spike",
+  "source": {
+    "commit": "c73d9e710b3ca65e42ed75e3710eedd4112b0720",
+    "describe": "v0.3.0-49-gc73d9e7",
+    "dirty": false
+  },
+  "generated_at": "2026-11-16T21:15:27+00:00",
+  "blocks": [
+    "azure-root",
+    "monitoring",
+    "key-vault"
+  ],
+  "modules": [
+    "monitoring",
+    "key-vault"
+  ],
+  "answers": {
+    "project_name": "spike-orchestrator-to-logic-apps",
+    "title": "Orchestrator to Logic Apps Standard migration spike",
+    "question": "Can scheduled and folder-monitoring System Center Orchestrator jobs, including jobs that use on-premises file shares and local tools, run on Azure Logic Apps Standard with Azure Automation hybrid workers, reliably, idempotently and observably?",
+    "time_box": "Ready by 2026-11-23",
+    "azure_stack": false,
+    "litellm_gateway": false,
+    "apim_gateway": false,
+    "azure_base": false,
+    "azure_core": true,
+    "notes_mcp": false,
+    "chat_ui": false,
+    "foundry_agents": false,
+    "environment": "spike-orchestrator-to-logic-apps",
+    "location": "francecentral",
+    "author": "Iheb Khemissi"
+  }
+}
