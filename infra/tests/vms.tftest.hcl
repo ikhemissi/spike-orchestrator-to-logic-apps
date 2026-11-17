@@ -55,7 +55,7 @@ override_resource {
   override_during = plan
 
   values = {
-    private_key_openssh = "-----BEGIN OPENSSH PRIVATE KEY-----"
+    private_key_openssh = "mock-openssh-private-key"
     public_key_openssh  = "ssh-rsa AAAATEST"
   }
 }
@@ -65,8 +65,8 @@ override_resource {
   override_during = plan
 
   values = {
-    private_key_openssh = "-----BEGIN OPENSSH PRIVATE KEY-----"
-    public_key_openssh  = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCoLpoH2hLh0ycMGE7JNA4iennuhjRzFy+IWCT1T1voD491yHiF9NYHL52kvUP2vABoiQRdEGs2dzpQK3kG/jKWQtoM9Lknq1aX9XVSy/9CaNEAKGOvjXefXe2eTdQ5q37cm3lheXTTxXaVf3ECcSDxDS4NFKfhLqLU/PWs/AtUi7bZI3ZEU1WHAvs/LOBEE9g2B4JTyGvwaVSo0tp7RFKQsGuO9L+uD1W6BSIC8yusEILguK6AleAjRkzhPBRsTJeZCE7p4wQFGZMGld4pyil8PpVThbFHU3d+sIcDPnPCWQRwqOUAzcFVSxvYna0wz9GoE/6BOELliGS5+Yrt5A83 runner@runnervm8axu0"
+    private_key_openssh = "mock-openssh-private-key"
+    public_key_openssh  = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCoLpoH2hLh0ycMGE7JNA4iennuhjRzFy+IWCT1T1voD491yHiF9NYHL52kvUP2vABoiQRdEGs2dzpQK3kG/jKWQtoM9Lknq1aX9XVSy/9CaNEAKGOvjXefXe2eTdQ5q37cm3lheXTTxXaVf3ECcSDxDS4NFKfhLqLU/PWs/AtUi7bZI3ZEU1WHAvs/LOBEE9g2B4JTyGvwaVSo0tp7RFKQsGuO9L+uD1W6BSIC8yusEILguK6AleAjRkzhPBRsTJeZCE7p4wQFGZMGld4pyil8PpVThbFHU3d+sIcDPnPCWQRwqOUAzcFVSxvYna0wz9GoE/6BOELliGS5+Yrt5A83 mock-partner-admin"
   }
 }
 
