@@ -1,0 +1,21 @@
+participantId,organization,registrationType
+P-001,Example Studio,standard
+P-002,Sample Works,student
+P-003,Demo Systems,standard
+P-004,Test Cooperative,guest
+P-005,Example Studio,standard
+P-006,Sample Works,guest
+P-007,Demo Systems,student
+P-008,Test Cooperative,standard
+P-009,Example Studio,guest
+P-010,Sample Works,standard
+P-011,Demo Systems,guest
+P-012,Test Cooperative,student
+P-013,Example Studio,standard
+P-014,Sample Works,student
+P-015,Demo Systems,standard
+P-016,Test Cooperative,guest
+P-017,Example Studio,student
+P-018,Sample Works,standard
+P-019,Demo Systems,guest
+P-020,Test Cooperative,standard
