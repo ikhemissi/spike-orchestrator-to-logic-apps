@@ -43,7 +43,7 @@ restore_partner_ip() {
 import base64, json, sys
 for rule in json.load(sys.stdin):
     description = rule.get("description") or ""
-    marker = "copilot-restore:"
+    marker = "fault-restore:"
     if description.startswith(marker):
         state = json.loads(base64.b64decode(description[len(marker):]))
         print("\t".join((rule["name"], base64.b64encode(state["description"].encode()).decode(),
@@ -80,7 +80,7 @@ name, encoded, prefixes = matches[0]
 remaining = [prefix for prefix in prefixes if prefix != nat]
 if not remaining:
     remaining = ["0.0.0.0/32"]
-description = "copilot-restore:" + encoded
+description = "fault-restore:" + encoded
 if len(description) > 140:
     raise SystemExit("Partner NSG rule description is too long to store restore state")
 print(name + "\t" + description + "\t" + json.dumps(remaining))
@@ -99,11 +99,11 @@ invoke_partner_services() {
   if [[ "$action" == stop ]]; then
     # VERIFY: partner VM runs Linux with vsftpd; sshd is stopped with it so the partner is unavailable.
     # shellcheck disable=SC2016
-    script='state=/var/tmp/copilot-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
+    script='state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
   else
     # VERIFY: restore only services that were active before fault injection.
     # shellcheck disable=SC2016
-    script='state=/var/tmp/copilot-partner-services; if [ -f "$state" ]; then while read -r service; do systemctl start "$service"; done < "$state"; rm -f "$state"; fi'
+    script='state=/var/tmp/fault-partner-services; if [ -f "$state" ]; then while read -r service; do systemctl start "$service"; done < "$state"; rm -f "$state"; fi'
   fi
   az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
     --name "$PARTNER_VM_NAME" --command-id RunShellScript --scripts "$script" --output none
@@ -160,19 +160,19 @@ set_worker_running_state() {
       if [[ "$state" == PowerState/running ]]; then
         local existing_marker
         existing_marker=$(az vm show --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-          --name "$worker" --query tags.copilot-was-running --output tsv)
+          --name "$worker" --query tags.fault-was-running --output tsv)
         [[ -z "$existing_marker" || "$existing_marker" == None ]] || {
-          echo "VM $worker already has the copilot-was-running tag; refusing to overwrite it" >&2
+          echo "VM $worker already has the fault-was-running tag; refusing to overwrite it" >&2
           return 1
         }
         # VERIFY: Azure resource tags persist prior power state in Azure for restore-all.
-        az tag update --resource-id "$resource_id" --operation Merge --tags copilot-was-running=true --output none
+        az tag update --resource-id "$resource_id" --operation Merge --tags fault-was-running=true --output none
         az vm stop --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" --name "$worker" --output none
       fi
     elif [[ "$(az vm show --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-      --name "$worker" --query tags.copilot-was-running --output tsv)" == true ]]; then
+      --name "$worker" --query tags.fault-was-running --output tsv)" == true ]]; then
       az vm start --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" --name "$worker" --output none
-      az tag update --resource-id "$resource_id" --operation Delete --tags copilot-was-running --output none
+      az tag update --resource-id "$resource_id" --operation Delete --tags fault-was-running --output none
     fi
   done
 }
@@ -193,15 +193,15 @@ doc = json.load(sys.stdin)
 tags = doc.get("tags") or {}
 props = doc.get("properties") or {}
 if sys.argv[1] == "inject":
-    if "copilot-original-credential" in tags:
+    if "fault-original-credential" in tags:
         raise SystemExit("Worker system-account fault is already active")
     credential = props.get("credential")
     if not credential or not credential.get("name"):
         raise SystemExit("Worker group has no custom credential to restore")
-    tags["copilot-original-credential"] = credential["name"]
+    tags["fault-original-credential"] = credential["name"]
     body = {"properties": {"credential": None}, "tags": tags}
 else:
-    original = tags.pop("copilot-original-credential", None)
+    original = tags.pop("fault-original-credential", None)
     if original is None:
         print("{}")
         raise SystemExit
@@ -241,7 +241,7 @@ set_ftp_password_secret() {
 restore_bad_password() {
   local version password
   version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query tags.copilot-restore-version --output tsv)
+    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query tags.fault-restore-version --output tsv)
   [[ -n "$version" && "$version" != None ]] || return 0
   IFS= read -r password < <(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --version "$version" --query value --output tsv)
@@ -256,7 +256,7 @@ inject_bad_password() {
   local existing_restore_version
   existing_restore_version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password \
-    --query tags.copilot-restore-version --output tsv)
+    --query tags.fault-restore-version --output tsv)
   [[ -z "$existing_restore_version" || "$existing_restore_version" == None ]] || {
     echo "Bad FTP password fault is already active; restore it first" >&2
     return 1
@@ -267,7 +267,7 @@ inject_bad_password() {
   # VERIFY: secret version tags are supported by the deployed Key Vault CLI/API.
   az keyvault secret set --vault-name "$KEY_VAULT_NAME" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --value invalid-test-password \
-    --tags "copilot-restore-version=$current_version" --output none
+    --tags "fault-restore-version=$current_version" --output none
   # VERIFY: confirm the Logic Apps Standard restart command is available in the deployed az CLI.
   az logicapp restart --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --output none

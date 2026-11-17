@@ -90,7 +90,7 @@ function Invoke-PartnerIpBlock {
     $match = @($matchingRules)[0]
     $state = @{ description = [string]$match.Rule.description; prefixes = @($match.Prefixes) } | ConvertTo-Json -Compress
     $encodedState = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($state))
-    $description = "copilot-restore:$encodedState"
+    $description = "fault-restore:$encodedState"
     if ($description.Length -gt 140) {
         throw 'Partner NSG rule description is too long to store restore state'
     }
@@ -103,10 +103,10 @@ function Invoke-PartnerIpBlock {
 
 function Restore-PartnerIpBlock {
     foreach ($rule in (Get-PartnerNsgRule)) {
-        if (-not $rule.description -or -not $rule.description.StartsWith('copilot-restore:')) {
+        if (-not $rule.description -or -not $rule.description.StartsWith('fault-restore:')) {
             continue
         }
-        $encodedState = $rule.description.Substring('copilot-restore:'.Length)
+        $encodedState = $rule.description.Substring('fault-restore:'.Length)
         $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedState))
         $state = $json | ConvertFrom-Json
         Invoke-PartnerNsgRuleUpdate -Name $rule.name -Prefixes @($state.prefixes) -Description ([string]$state.description)
@@ -120,11 +120,11 @@ function Invoke-PartnerService {
     $vmName = Get-Setting PARTNER_VM_NAME
     if ($Action -eq 'stop') {
         # VERIFY: partner VM runs Linux with vsftpd; sshd is stopped with it so the partner is unavailable.
-        $script = 'state=/var/tmp/copilot-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
+        $script = 'state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
     }
     else {
         # VERIFY: restore only services that were active before fault injection.
-        $script = 'state=/var/tmp/copilot-partner-services; if [ -f "$state" ]; then while read -r service; do systemctl start "$service"; done < "$state"; rm -f "$state"; fi'
+        $script = 'state=/var/tmp/fault-partner-services; if [ -f "$state" ]; then while read -r service; do systemctl start "$service"; done < "$state"; rm -f "$state"; fi'
     }
     $null = Invoke-AzCli -Arguments @(
         'vm', 'run-command', 'invoke', '--resource-group', $resourceGroup, '--subscription', $subscription,
@@ -207,14 +207,14 @@ function Set-WorkerRunningState {
                 '--output', 'tsv'
             )
             if ($state -eq 'PowerState/running') {
-                if ($vm.tags.'copilot-was-running') {
-                    throw "VM $worker already has the copilot-was-running tag; refusing to overwrite it"
+                if ($vm.tags.'fault-was-running') {
+                    throw "VM $worker already has the fault-was-running tag; refusing to overwrite it"
                 }
                 # VERIFY: Azure resource tags persist prior power state in Azure for restore-all.
                 if ($PSCmdlet.ShouldProcess($worker, 'Stop worker and save its prior state')) {
                     $null = Invoke-AzCli -Arguments @(
                         'tag', 'update', '--resource-id', $vm.id, '--operation', 'Merge',
-                        '--tags', 'copilot-was-running=true', '--output', 'none'
+                        '--tags', 'fault-was-running=true', '--output', 'none'
                     )
                     $null = Invoke-AzCli -Arguments @(
                         'vm', 'stop', '--resource-group', $resourceGroup, '--subscription', $subscription,
@@ -223,7 +223,7 @@ function Set-WorkerRunningState {
                 }
             }
         }
-        elseif ($vm.tags.'copilot-was-running' -eq 'true') {
+        elseif ($vm.tags.'fault-was-running' -eq 'true') {
             if ($PSCmdlet.ShouldProcess($worker, 'Restore worker to its prior running state')) {
                 $null = Invoke-AzCli -Arguments @(
                     'vm', 'start', '--resource-group', $resourceGroup, '--subscription', $subscription,
@@ -231,7 +231,7 @@ function Set-WorkerRunningState {
                 )
                 $null = Invoke-AzCli -Arguments @(
                     'tag', 'update', '--resource-id', $vm.id, '--operation', 'Delete',
-                    '--tags', 'copilot-was-running', '--output', 'none'
+                    '--tags', 'fault-was-running', '--output', 'none'
                 )
             }
         }
@@ -260,21 +260,21 @@ function Set-WorkerSystemAccount {
     }
     $properties = @{}
     if ($Action -eq 'inject') {
-        if ($tags.ContainsKey('copilot-original-credential')) {
+        if ($tags.ContainsKey('fault-original-credential')) {
             throw 'Worker system-account fault is already active'
         }
         if (-not $document.properties.credential.name) {
             throw 'Worker group has no custom credential to restore'
         }
-        $tags['copilot-original-credential'] = $document.properties.credential.name
+        $tags['fault-original-credential'] = $document.properties.credential.name
         $properties.credential = $null
     }
     else {
-        if (-not $tags.ContainsKey('copilot-original-credential')) {
+        if (-not $tags.ContainsKey('fault-original-credential')) {
             return
         }
-        $properties.credential = @{ name = $tags['copilot-original-credential'] }
-        $tags.Remove('copilot-original-credential')
+        $properties.credential = @{ name = $tags['fault-original-credential'] }
+        $tags.Remove('fault-original-credential')
     }
     $body = @{ properties = $properties; tags = $tags } | ConvertTo-Json -Depth 10 -Compress
     if ($PSCmdlet.ShouldProcess($url, "Set worker credential for $Action")) {
@@ -363,7 +363,7 @@ function Restore-BadPassword {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $version = Invoke-AzCli -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags.copilot-restore-version', '--output', 'tsv'
+        '--name', 'ftp-partner-a-password', '--query', 'tags.fault-restore-version', '--output', 'tsv'
     )
     if (-not $version -or $version -eq 'None') {
         return
@@ -398,7 +398,7 @@ function Invoke-BadPassword {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $existingRestoreVersion = Invoke-AzCli -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags.copilot-restore-version', '--output', 'tsv'
+        '--name', 'ftp-partner-a-password', '--query', 'tags.fault-restore-version', '--output', 'tsv'
     )
     if ($existingRestoreVersion -and $existingRestoreVersion -ne 'None') {
         throw 'Bad FTP password fault is already active; restore it first'
@@ -412,7 +412,7 @@ function Invoke-BadPassword {
     $null = Invoke-AzCli -Arguments @(
         'keyvault', 'secret', 'set', '--vault-name', $keyVault, '--subscription', $subscription,
         '--name', 'ftp-partner-a-password', '--value', 'invalid-test-password',
-        '--tags', "copilot-restore-version=$currentVersion", '--output', 'none'
+        '--tags', "fault-restore-version=$currentVersion", '--output', 'none'
     )
     $resourceGroup = Get-Setting AZURE_RESOURCE_GROUP
     $logicApp = Get-Setting LOGIC_APP_NAME

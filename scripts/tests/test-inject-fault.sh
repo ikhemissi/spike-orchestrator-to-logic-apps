@@ -29,7 +29,7 @@ with open(sys.argv[1], encoding="utf-8") as state_file:
     rule = json.load(state_file)["partner_rule"]
 assert rule["sourceAddressPrefixes"] == ["203.0.113.8"]
 assert "198.51.100.10" not in rule["sourceAddressPrefixes"]
-assert rule["description"].startswith("copilot-restore:")
+assert rule["description"].startswith("fault-restore:")
 PY
 
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
@@ -113,7 +113,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
 assert state["worker_credential"] is None
-assert state["worker_group_tags"]["copilot-original-credential"] == "svc-automation"
+assert state["worker_group_tags"]["fault-original-credential"] == "svc-automation"
 PY
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
 python3 - "$AZ_TEST_STATE" <<'PY'
@@ -123,7 +123,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
 assert state["worker_credential"] == "svc-automation"
-assert "copilot-original-credential" not in state["worker_group_tags"]
+assert "fault-original-credential" not in state["worker_group_tags"]
 PY
 
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null

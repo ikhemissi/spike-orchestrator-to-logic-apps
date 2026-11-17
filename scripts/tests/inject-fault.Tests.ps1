@@ -49,7 +49,7 @@ Describe 'inject-fault partner-ip-block' {
         Invoke-PartnerIpBlock
 
         $script:PartnerRule.sourceAddressPrefixes | Should -Be @('203.0.113.8')
-        $script:PartnerRule.description | Should -Match '^copilot-restore:'
+        $script:PartnerRule.description | Should -Match '^fault-restore:'
 
         Restore-PartnerIpBlock
 
