@@ -1,0 +1,106 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "CorrelationId",
+            "version": "KqlParameterItem/1.0",
+            "name": "CorrelationId",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"]
+      },
+      "name": "Correlation ID"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, Status, and TimeGenerated columns.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(7d)\n| where WorkflowName startswith \"wf-j\"\n| summarize Succeeded = countif(Status == \"Succeeded\"), Failed = countif(Status == \"Failed\") by WorkflowName\n| order by WorkflowName asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Runs per workflow"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, DurationMs, and TimeGenerated columns.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(7d)\n| where WorkflowName startswith \"wf-j\"\n| summarize DurationP50 = percentile(DurationMs, 50), DurationP95 = percentile(DurationMs, 95) by WorkflowName\n| order by WorkflowName asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Workflow duration p50 and p95"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and TrackedProperties.filesProcessed, WorkflowName, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| summarize FilesProcessed = sum(toint(TrackedProperties.filesProcessed)) by WorkflowName, Day = bin(TimeGenerated, 1d)\n| order by Day desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Files processed per job and day"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and TrackedProperties.errorCode, Status, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| where Status == \"Failed\"\n| summarize Failures = count() by ErrorCode = tostring(TrackedProperties.errorCode)\n| order by Failures desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Failures by error code"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: AzureDiagnostics table and Category, ResultType, WorkerName, and TimeGenerated columns for Automation JobLogs.\nAzureDiagnostics\n| where TimeGenerated >= ago(30d)\n| where Category == \"JobLogs\"\n| summarize Jobs = count() by Status = ResultType, Worker = tostring(WorkerName)\n| order by Jobs desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Automation jobs by status and worker"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VERIFY: LogicAppWorkflowRuntime tracked-property fields and AzureDiagnostics JobLogs correlation fields.\nlet SelectedCorrelationId = '{CorrelationId}';\nlet WorkflowRuns =\n    LogicAppWorkflowRuntime\n    | where tostring(TrackedProperties.correlationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(TrackedProperties.correlationId), WorkflowName, WorkflowStatus = Status, WorkflowTime = TimeGenerated, ErrorCode = tostring(TrackedProperties.errorCode);\nlet AutomationJobs =\n    AzureDiagnostics\n    | where Category == \"JobLogs\"\n    | where tostring(CorrelationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(CorrelationId), JobStatus = ResultType, Worker = tostring(WorkerName), JobTime = TimeGenerated;\nWorkflowRuns\n| join kind=leftouter AutomationJobs on CorrelationId\n| order by WorkflowTime asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "Trace by correlation ID"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"]
+}
