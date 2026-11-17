@@ -50,7 +50,10 @@ resource "azurerm_logic_app_standard" "main" {
   # Kept public so that the deployer can push the workflows (zip deployment); production with private inbound
   # access deploys from a runner inside the network (decision D7).
   public_network_access = "Enabled"
-  tags                  = merge(local.network_tags, { "azd-service-name" = "logicapp" })
+  # Deployments authenticate with Entra (az, azd), never with publishing credentials.
+  ftp_publish_basic_authentication_enabled = false
+  scm_publish_basic_authentication_enabled = false
+  tags                                     = merge(local.network_tags, { "azd-service-name" = "logicapp" })
 
   identity {
     type         = "UserAssigned"

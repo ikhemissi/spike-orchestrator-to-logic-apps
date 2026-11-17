@@ -120,6 +120,11 @@ resource "azurerm_public_ip" "nat" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = local.network_tags
+
+  lifecycle {
+    # Some tenants add IP tags to new public IPs; a change of IP tags would replace the IP that partners allow-list.
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_nat_gateway" "logicapp" {

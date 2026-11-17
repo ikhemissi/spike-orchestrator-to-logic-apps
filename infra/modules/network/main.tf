@@ -1,3 +1,10 @@
+locals {
+  # The action Azure records for each delegated service; declaring another one shows as a change on every plan.
+  delegation_actions = {
+    "Microsoft.Web/serverFarms" = "Microsoft.Network/virtualNetworks/subnets/action"
+  }
+}
+
 # A virtual network with the project's subnets and the private DNS zones its private endpoints register in.
 # The project lists its subnets (infra/network.tf): which ones it needs depends on its services, e.g. a subnet
 # delegated to Container Apps and one for private endpoints.
@@ -26,7 +33,7 @@ resource "azurerm_subnet" "main" {
       name = replace(delegation.value, "/", ".")
       service_delegation {
         name    = delegation.value
-        actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+        actions = [lookup(local.delegation_actions, delegation.value, "Microsoft.Network/virtualNetworks/subnets/join/action")]
       }
     }
   }
