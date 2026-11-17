@@ -1,0 +1,86 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "method": "POST",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "correlationId": { "type": "string" },
+              "job": { "type": "string" },
+              "pattern": { "type": "string" },
+              "outcome": { "type": "string" },
+              "startedAt": { "type": "string" },
+              "finishedAt": { "type": "string" },
+              "filesProcessed": { "type": "integer" },
+              "filesSkipped": { "type": "integer" },
+              "filesFailed": { "type": "integer" },
+              "errors": { "type": "array" },
+              "details": {}
+            },
+            "required": [ "correlationId", "job", "pattern", "outcome" ]
+          }
+        },
+        "operationOptions": "EnableSchemaValidation"
+      }
+    },
+    "actions": {
+      "Compose_report_path": {
+        "type": "Compose",
+        "inputs": "@{triggerBody()?['job']}/@{formatDateTime(utcNow(), 'yyyy/MM/dd')}/@{triggerBody()?['correlationId']}.json",
+        "runAfter": {},
+        "trackedProperties": {
+          "correlationId": "@{triggerBody()?['correlationId']}",
+          "jobName": "@{triggerBody()?['job']}",
+          "pattern": "@{triggerBody()?['pattern']}",
+          "outcome": "@{triggerBody()?['outcome']}"
+        }
+      },
+      "Upload_report": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "containerName": "run-reports",
+            "blobName": "@{outputs('Compose_report_path')}",
+            "content": "@triggerBody()",
+            "overrideIfExists": "true"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "blobReports",
+            "operationId": "uploadBlob",
+            "serviceProviderId": "/serviceProviders/AzureBlob"
+          }
+        },
+        "runAfter": {
+          "Compose_report_path": [ "Succeeded" ]
+        },
+        "retryPolicy": {
+          "type": "exponential",
+          "count": 4,
+          "interval": "PT15S",
+          "maximumInterval": "PT5M"
+        }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "reportPath": "@{outputs('Compose_report_path')}"
+          }
+        },
+        "runAfter": {
+          "Upload_report": [ "Succeeded" ]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

@@ -1,0 +1,19 @@
+{
+  "serviceProviderConnections": {
+    "blobReports": {
+      "displayName": "blobReports",
+      "parameterValues": {
+        "blobStorageEndpoint": "@appsetting('DATA_BLOB_ENDPOINT')",
+        "managedIdentityType": "UserAssigned",
+        "authProvider": {
+          "Type": "ManagedServiceIdentity",
+          "Identity": "@appsetting('LOGICAPP_IDENTITY_RESOURCE_ID')"
+        }
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/AzureBlob"
+      }
+    }
+  },
+  "managedApiConnections": {}
+}

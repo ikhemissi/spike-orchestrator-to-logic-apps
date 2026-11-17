@@ -3,8 +3,12 @@
 # (infra/network.tf), so a fresh `azd up` needs no manual step. An existing value is kept.
 set -euo pipefail
 
-# The azd environment is the source of truth, not a value left in the shell.
-current_ip="$(azd env get-value DEPLOYER_IP 2>/dev/null || true)"
+# The azd environment is the source of truth, not a value left in the shell. azd prints its "key not found" error on
+# stdout, so only a successful lookup counts.
+current_ip=""
+if lookup="$(azd env get-value DEPLOYER_IP 2>/dev/null)"; then
+  current_ip="$lookup"
+fi
 if [[ -n "$current_ip" ]]; then
   echo "DEPLOYER_IP is already set: $current_ip"
   exit 0
