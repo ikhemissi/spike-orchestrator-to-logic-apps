@@ -7,9 +7,11 @@ locals {
 
   logicapp_connection_settings = {
     FTP_PARTNER_A_HOST         = azurerm_public_ip.partner.fqdn
+    FTP_PARTNER_A_PORT         = tostring(var.partner_ftp_port)
     FTP_PARTNER_A_USERNAME     = "partner-a"
     FTP_PARTNER_A_PASSWORD     = format(local.key_vault_reference, "ftp-partner-a-password")
     SFTP_PARTNER_B_HOST        = azurerm_public_ip.partner.fqdn
+    SFTP_PARTNER_B_PORT        = tostring(var.partner_sftp_port)
     SFTP_PARTNER_B_USERNAME    = "partner-b"
     SFTP_PARTNER_B_PRIVATE_KEY = format(local.key_vault_reference, "sftp-partner-b-private-key")
     NAS_ROOT_FOLDER            = "\\\\nas01.${local.corp_dns_zone_name}\\share"

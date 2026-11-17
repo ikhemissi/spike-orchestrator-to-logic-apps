@@ -332,7 +332,7 @@ resource "azurerm_virtual_machine_extension" "partner_setup" {
     fileUris = ["${local.vm_scripts_base_url}/setup-partner.sh"]
   })
   protected_settings = jsonencode({
-    commandToExecute = "PASV_ADDRESS=${azurerm_public_ip.partner.ip_address} PARTNER_A_PASSWORD=${random_password.partner_a.result} PARTNER_B_PUBLIC_KEY='${trimspace(tls_private_key.partner_b.public_key_openssh)}' ENABLE_FTPS=${var.enable_ftps} bash setup-partner.sh"
+    commandToExecute = "PASV_ADDRESS=${azurerm_public_ip.partner.ip_address} PARTNER_A_PASSWORD=${random_password.partner_a.result} PARTNER_B_PUBLIC_KEY='${trimspace(tls_private_key.partner_b.public_key_openssh)}' ENABLE_FTPS=${var.enable_ftps} FTP_PORT=${var.partner_ftp_port} SSH_PORT=${var.partner_sftp_port} bash setup-partner.sh"
   })
 }
 
@@ -395,6 +395,9 @@ resource "azurerm_dev_test_global_vm_shutdown_schedule" "partner" {
 output "PARTNER_VM_NAME" {
   value = azurerm_linux_virtual_machine.partner.name
 }
+
+output "PARTNER_FTP_PORT" { value = var.partner_ftp_port }
+output "PARTNER_SFTP_PORT" { value = var.partner_sftp_port }
 
 output "PARTNER_VM_FQDN" {
   value = azurerm_public_ip.partner.fqdn

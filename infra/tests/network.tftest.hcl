@@ -127,7 +127,7 @@ run "network_plan" {
   }
 
   assert {
-    condition     = azurerm_network_security_rule.partner_allow_list.access == "Allow" && toset(azurerm_network_security_rule.partner_allow_list.destination_port_ranges) == toset(["21", "22", "40000-40100"])
+    condition     = azurerm_network_security_rule.partner_allow_list.access == "Allow" && toset(azurerm_network_security_rule.partner_allow_list.destination_port_ranges) == toset(["2121", "2222", "40000-40100"])
     error_message = "The partner allow-list must cover TCP 21, 22 and 40000-40100."
   }
 

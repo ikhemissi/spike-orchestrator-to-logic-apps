@@ -20,7 +20,7 @@
         "serverAddress": "@appsetting('FTP_PARTNER_A_HOST')",
         "username": "@appsetting('FTP_PARTNER_A_USERNAME')",
         "password": "@appsetting('FTP_PARTNER_A_PASSWORD')",
-        "portNumber": 21,
+        "portNumber": "@appsetting('FTP_PARTNER_A_PORT')",
         "enableSsl": false,
         "enableBinaryMode": true
       },
@@ -34,7 +34,7 @@
         "sshHostAddress": "@appsetting('SFTP_PARTNER_B_HOST')",
         "username": "@appsetting('SFTP_PARTNER_B_USERNAME')",
         "sshPrivateKey": "@appsetting('SFTP_PARTNER_B_PRIVATE_KEY')",
-        "portNumber": 22
+        "portNumber": "@appsetting('SFTP_PARTNER_B_PORT')"
       },
       "serviceProvider": {
         "id": "/serviceProviders/Sftp"

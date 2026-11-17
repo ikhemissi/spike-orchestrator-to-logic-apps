@@ -22,6 +22,18 @@ variable "deployer_ip" {
   }
 }
 
+variable "partner_ftp_port" {
+  description = "FTP control port of the simulated partner (PARTNER_FTP_PORT). Not 21: some tenants remove Internet-facing rules for well-known management ports (decision D9)."
+  type        = number
+  default     = 2121
+}
+
+variable "partner_sftp_port" {
+  description = "SFTP port of the simulated partner (PARTNER_SFTP_PORT). Not 22, for the same reason (decision D9)."
+  type        = number
+  default     = 2222
+}
+
 variable "enable_bastion" {
   description = "Create the AzureBastionSubnet in the simulated datacenter (ENABLE_BASTION, \"true\" or \"false\")."
   # azd passes "true"/"false" strings; Terraform converts them to bool.
@@ -277,7 +289,7 @@ resource "azurerm_network_security_rule" "partner_allow_list" {
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
-  destination_port_ranges     = ["21", "22", "40000-40100"]
+  destination_port_ranges     = [tostring(var.partner_ftp_port), tostring(var.partner_sftp_port), "40000-40100"]
   source_address_prefixes     = local.partner_allowed_sources
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.main.name
