@@ -81,7 +81,7 @@ run "automation_uses_hybrid_worker_credential" {
   }
 
   assert {
-    condition     = azurerm_automation_credential.svc_azauto.name == "cred-svc-azauto" && azurerm_automation_credential.svc_azauto.username == "hw01\\svc-azauto"
+    condition     = azurerm_automation_credential.svc_azauto.name == "cred-svc-azauto" && azurerm_automation_credential.svc_azauto.username == "svc-azauto"
     error_message = "The Automation credential asset must use the worker-local svc-azauto account."
   }
 

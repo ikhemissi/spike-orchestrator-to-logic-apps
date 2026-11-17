@@ -55,8 +55,10 @@ resource "azurerm_automation_credential" "svc_azauto" {
   name                    = "cred-svc-azauto"
   resource_group_name     = azurerm_resource_group.main.name
   automation_account_name = azurerm_automation_account.main.name
-  username                = "hw01\\svc-azauto"
-  password                = random_password.svc_azauto.result
+  # No machine prefix: on each worker the name resolves to that worker's own (mirrored) local account, so a job
+  # still runs as svc-azauto when it fails over to hw02.
+  username = "svc-azauto"
+  password = random_password.svc_azauto.result
 }
 
 resource "azurerm_automation_hybrid_runbook_worker_group" "files" {
@@ -115,12 +117,14 @@ resource "azurerm_role_assignment" "logicapp_automation_job_operator" {
   scope                = azurerm_automation_account.main.id
   role_definition_name = "Automation Job Operator"
   principal_id         = azurerm_user_assigned_identity.logicapp.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 resource "azurerm_role_assignment" "logicapp_automation_runbook_operator" {
   scope                = azurerm_automation_account.main.id
   role_definition_name = "Automation Runbook Operator"
   principal_id         = azurerm_user_assigned_identity.logicapp.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 output "AUTOMATION_ACCOUNT_NAME" {
@@ -129,6 +133,10 @@ output "AUTOMATION_ACCOUNT_NAME" {
 
 output "AUTOMATION_ACCOUNT_ID" {
   value = azurerm_automation_account.main.id
+}
+
+output "HYBRID_WORKER_GROUP" {
+  value = azurerm_automation_hybrid_runbook_worker_group.files.name
 }
 
 output "AUTOMATION_RUNBOOK_NAME" {
