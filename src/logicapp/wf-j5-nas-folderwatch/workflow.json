@@ -1,0 +1,218 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_file_is_added": {
+        "type": "ServiceProvider",
+        "description": "# VERIFY: Confirm the trigger input name, output path/name fields, and polling interval from the FileSystem runtime manifest.",
+        "inputs": {
+          "parameters": {
+            "folderPath": "@parameters('j5WatchFolder')"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "fileSystemNas",
+            "operationId": "whenFilesAreAdded",
+            "serviceProviderId": "/serviceProviders/FileSystem"
+          }
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "runs": 1
+          }
+        }
+      }
+    },
+    "actions": {
+      "Init_CorrelationId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "correlationId",
+              "type": "string",
+              "value": "@{guid()}"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Init_StartedAt": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "startedAt",
+              "type": "string",
+              "value": "@{utcNow()}"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_CorrelationId": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Try": {
+        "type": "Scope",
+        "actions": {
+          "Move_to_processed": {
+            "type": "ServiceProvider",
+            "description": "# VERIFY: Confirm FileSystem renameFile accepts a processed-folder path in newName for cross-folder moves.",
+            "inputs": {
+              "parameters": {
+                "filePath": "@triggerBody()?['path']",
+                "newName": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}"
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "fileSystemNas",
+                "operationId": "renameFile",
+                "serviceProviderId": "/serviceProviders/FileSystem"
+              }
+            },
+            "runAfter": {},
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 4,
+              "interval": "PT15S",
+              "maximumInterval": "PT5M"
+            },
+            "trackedProperties": {
+              "correlationId": "@{variables('correlationId')}",
+              "jobName": "J5",
+              "pattern": "P1",
+              "fileName": "@{triggerBody()?['name']}",
+              "outcome": "processed"
+            }
+          },
+          "Compose_summary": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "job": "J5",
+              "file": "@triggerBody()?['name']",
+              "source": "@triggerBody()?['path']",
+              "target": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}",
+              "filesProcessed": 1
+            },
+            "runAfter": {
+              "Move_to_processed": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{variables('correlationId')}",
+              "jobName": "J5",
+              "pattern": "P1",
+              "outcome": "Succeeded"
+            }
+          }
+        },
+        "runAfter": {
+          "Init_StartedAt": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Catch": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "actions": {
+          "Filter_failed_actions": {
+            "type": "Query",
+            "inputs": {
+              "from": "@result('Scope_Try')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "Report_failure": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J5",
+                "pattern": "P1",
+                "outcome": "Failed",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": 0,
+                "filesSkipped": 0,
+                "filesFailed": 1,
+                "errors": "@body('Filter_failed_actions')"
+              }
+            },
+            "runAfter": {
+              "Filter_failed_actions": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Terminate_failed": {
+            "type": "Terminate",
+            "runAfter": {
+              "Report_failure": [
+                "Succeeded",
+                "Failed"
+              ]
+            },
+            "inputs": {
+              "runStatus": "Failed",
+              "runError": {
+                "code": "J5_FAILED",
+                "message": "@{first(body('Filter_failed_actions'))?['name']}: @{first(body('Filter_failed_actions'))?['error']?['message']}"
+              }
+            }
+          }
+        }
+      },
+      "Scope_Finally": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "Report_success": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J5",
+                "pattern": "P1",
+                "outcome": "Succeeded",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": 1,
+                "filesSkipped": 0,
+                "filesFailed": 0,
+                "errors": [],
+                "details": "@outputs('Compose_summary')"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {},
+    "parameters": {}
+  },
+  "kind": "Stateful"
+}
