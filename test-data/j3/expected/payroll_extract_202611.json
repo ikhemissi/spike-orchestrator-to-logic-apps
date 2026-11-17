@@ -1,0 +1,22 @@
+[
+  {"employeeId":"EMP-001","period":"2026-11","grossAmount":4200.00,"currency":"EUR"},
+  {"employeeId":"EMP-002","period":"2026-11","grossAmount":3850.50,"currency":"EUR"},
+  {"employeeId":"EMP-003","period":"2026-11","grossAmount":5100.00,"currency":"EUR"},
+  {"employeeId":"EMP-004","period":"2026-11","grossAmount":2975.25,"currency":"EUR"},
+  {"employeeId":"EMP-005","period":"2026-11","grossAmount":4600.00,"currency":"EUR"},
+  {"employeeId":"EMP-006","period":"2026-11","grossAmount":3325.75,"currency":"EUR"},
+  {"employeeId":"EMP-007","period":"2026-11","grossAmount":5700.00,"currency":"EUR"},
+  {"employeeId":"EMP-008","period":"2026-11","grossAmount":4010.00,"currency":"EUR"},
+  {"employeeId":"EMP-009","period":"2026-11","grossAmount":3550.50,"currency":"EUR"},
+  {"employeeId":"EMP-010","period":"2026-11","grossAmount":4890.00,"currency":"EUR"},
+  {"employeeId":"EMP-011","period":"2026-11","grossAmount":3120.00,"currency":"EUR"},
+  {"employeeId":"EMP-012","period":"2026-11","grossAmount":5250.25,"currency":"EUR"},
+  {"employeeId":"EMP-013","period":"2026-11","grossAmount":3780.00,"currency":"EUR"},
+  {"employeeId":"EMP-014","period":"2026-11","grossAmount":4450.75,"currency":"EUR"},
+  {"employeeId":"EMP-015","period":"2026-11","grossAmount":2980.00,"currency":"EUR"},
+  {"employeeId":"EMP-016","period":"2026-11","grossAmount":5390.50,"currency":"EUR"},
+  {"employeeId":"EMP-017","period":"2026-11","grossAmount":3650.00,"currency":"EUR"},
+  {"employeeId":"EMP-018","period":"2026-11","grossAmount":4725.25,"currency":"EUR"},
+  {"employeeId":"EMP-019","period":"2026-11","grossAmount":3210.00,"currency":"EUR"},
+  {"employeeId":"EMP-020","period":"2026-11","grossAmount":4980.00,"currency":"EUR"}
+]
