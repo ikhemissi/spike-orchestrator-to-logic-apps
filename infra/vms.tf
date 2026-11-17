@@ -324,7 +324,7 @@ resource "azurerm_virtual_machine_extension" "partner_setup" {
     fileUris = ["${local.vm_scripts_base_url}/setup-partner.sh"]
   })
   protected_settings = jsonencode({
-    commandToExecute = "PASV_ADDRESS=${azurerm_public_ip.partner.ip_address} PARTNER_A_PASSWORD=${random_password.partner_a.result} PARTNER_B_PUBLIC_KEY='${tls_private_key.partner_b.public_key_openssh}' ENABLE_FTPS=${var.enable_ftps} bash setup-partner.sh"
+    commandToExecute = "PASV_ADDRESS=${azurerm_public_ip.partner.ip_address} PARTNER_A_PASSWORD=${random_password.partner_a.result} PARTNER_B_PUBLIC_KEY='${trimspace(tls_private_key.partner_b.public_key_openssh)}' ENABLE_FTPS=${var.enable_ftps} bash setup-partner.sh"
   })
 }
 
