@@ -85,19 +85,19 @@ The Automation arrows represent the logical create-job, get-status, and get-outp
 
 Network ranges, peering, and port rules follow [SPEC §3.1](SPEC.md#31-networks), [§3.4](SPEC.md#34-azure-automation), and the connector calls in [§5](SPEC.md#5-workflows--detailed-specification). The NSG on `snet-servers` allows TCP 445 to `nas01` only from `snet-logicapp-int` (10.10.1.0/26) and from `hw01`, and outbound 443 for the worker.
 
-## P3 sequence: encrypt files on the NAS
+## P3 sequence: convert files on the NAS
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant LA as Logic Apps wf-j3-encrypt-onprem
+  participant LA as Logic Apps wf-j3-convert-onprem
   participant AA as Azure Automation
   participant HW as Hybrid Worker hw01
   participant NAS as NAS share
   participant Report as wf-child-run-report and run-reports Blob
   participant Monitor as Log Analytics alert rules and action group
 
-  LA->>AA: Create job Invoke-EncryptAndMove, runOn hwg-spike-files, as id-logicapp managed identity
+  LA->>AA: Create job Invoke-ConvertAndMove, runOn hwg-spike-files, as id-logicapp managed identity
   AA-->>LA: Automation job ID, status Queued
 
   par Logic Apps polls the job status
@@ -109,7 +109,7 @@ sequenceDiagram
     alt Worker online
       HW->>AA: Poll for jobs over outbound HTTPS 443
       AA-->>HW: Runbook job and parameters
-      HW->>NAS: Read j3 in, write .gpg to j3 out, move source to j3 archive over SMB 445 as hw01 svc-azauto
+      HW->>NAS: Read j3 in, convert with the local tool, write .json to j3 out, move source to j3 archive over SMB 445 as hw01 svc-azauto
       NAS-->>HW: File results
       HW->>AA: Job status, logs and single JSON output over outbound HTTPS 443
     else Worker offline
@@ -138,7 +138,7 @@ sequenceDiagram
   Monitor->>Monitor: Action group sends the alert e-mail
 ```
 
-The worker only makes outbound HTTPS connections: it polls Automation for jobs, so nothing connects in to the datacenter. Logic Apps starts the job, then polls its status ("start then poll") instead of waiting synchronously, so a stuck job is detected. When no worker picks the job up, it stays *Queued*: after 10 minutes `alert-hybrid-job-stuck` fires, and at the polling limit (120 polls or 30 minutes) the run fails with `HYBRID_JOB_TIMEOUT`. A runbook that ends with failed files fails the run with `RUNBOOK_REPORTED_FAILURE`. On every path the child workflow `wf-child-run-report` writes a run report before the run ends. Dashed arrows are diagnostic logs evaluated by the alert rules, not calls. The alert queries' tables and columns are `# VERIFY` after the first runs. See [SPEC §5.0](SPEC.md#50-conventions-for-all-workflows), [§5.5](SPEC.md#55-wf-j3-encrypt-onprem--j3-pattern-p3) and [§6](SPEC.md#6-monitoring-and-alerts).
+The worker only makes outbound HTTPS connections: it polls Automation for jobs, so nothing connects in to the datacenter. Logic Apps starts the job, then polls its status ("start then poll") instead of waiting synchronously, so a stuck job is detected. When no worker picks the job up, it stays *Queued*: after 10 minutes `alert-hybrid-job-stuck` fires, and at the polling limit (120 polls or 30 minutes) the run fails with `HYBRID_JOB_TIMEOUT`. A runbook that ends with failed files fails the run with `RUNBOOK_REPORTED_FAILURE`. On every path the child workflow `wf-child-run-report` writes a run report before the run ends. Dashed arrows are diagnostic logs evaluated by the alert rules, not calls. The alert queries' tables and columns are `# VERIFY` after the first runs. See [SPEC §5.0](SPEC.md#50-conventions-for-all-workflows), [§5.5](SPEC.md#55-wf-j3-convert-onprem--j3-pattern-p3) and [§6](SPEC.md#6-monitoring-and-alerts).
 
 ## Workflow patterns
 
