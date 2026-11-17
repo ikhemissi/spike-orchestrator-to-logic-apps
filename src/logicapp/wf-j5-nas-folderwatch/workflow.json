@@ -16,6 +16,10 @@
             "serviceProviderId": "/serviceProviders/FileSystem"
           }
         },
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 1
+        },
         "runtimeConfiguration": {
           "concurrency": {
             "runs": 1
