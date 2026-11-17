@@ -3,7 +3,7 @@ Describe 'Convert-Extract' {
     BeforeAll {
         $script:tool = Join-Path $PSScriptRoot '..' 'tools' 'Convert-Extract.ps1'
         $script:testData = Join-Path $PSScriptRoot '..' '..' '..' '..' 'test-data' 'j3'
-        $script:powerShell = (Get-Process -Id $PID).Path
+        $script:powerShell = (Get-Command -Name pwsh -CommandType Application | Select-Object -First 1).Source
 
         function Invoke-ConvertExtract([string] $SourcePath, [string] $OutputPath) {
             $errorFile = Join-Path $TestDrive "$([guid]::NewGuid().ToString('N')).err"
