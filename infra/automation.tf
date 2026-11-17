@@ -81,6 +81,11 @@ resource "azurerm_automation_hybrid_runbook_worker" "worker" {
   worker_group_name       = azurerm_automation_hybrid_runbook_worker_group.files.name
   vm_resource_id          = azurerm_windows_virtual_machine.worker[each.key].id
   worker_id               = random_uuid.worker[each.key].result
+
+  lifecycle {
+    # Azure returns the VM ID in lower case; the case-only difference would replace the registration on every apply.
+    ignore_changes = [vm_resource_id]
+  }
 }
 
 resource "azurerm_virtual_machine_extension" "hybrid_worker" {

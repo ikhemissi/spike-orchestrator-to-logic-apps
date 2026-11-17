@@ -248,6 +248,11 @@ resource "azurerm_public_ip" "partner" {
   sku                 = "Standard"
   domain_name_label   = "partner-${local.compact_name}-${local.token}"
   tags                = local.network_tags
+
+  lifecycle {
+    # Some tenants add IP tags to new public IPs; a change of IP tags would replace the partner's address.
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_linux_virtual_machine" "partner" {
