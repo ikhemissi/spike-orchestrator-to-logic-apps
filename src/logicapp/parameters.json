@@ -14,5 +14,113 @@
   "j1ArchiveFolder": {
     "type": "String",
     "value": "/outbound/archive"
+  },
+  "j2RecurrenceMinutes": {
+    "type": "Int",
+    "value": 15
+  },
+  "j2SourceFolder": {
+    "type": "String",
+    "value": "/outbound/j2"
+  },
+  "j2ArchiveFolder": {
+    "type": "String",
+    "value": "/outbound/archive"
+  },
+  "j2Target": {
+    "type": "String",
+    "value": "blob"
+  },
+  "j2Folder": {
+    "type": "String",
+    "value": "partner-a"
+  },
+  "j2SharePointSiteId": {
+    "type": "String",
+    "value": ""
+  },
+  "j3RecurrenceMinutes": {
+    "type": "Int",
+    "value": 15
+  },
+  "j3SourcePath": {
+    "type": "String",
+    "value": "\\\\nas01.corp.local\\share\\j3\\in"
+  },
+  "j3TargetPath": {
+    "type": "String",
+    "value": "\\\\nas01.corp.local\\share\\j3\\out"
+  },
+  "j3ArchivePath": {
+    "type": "String",
+    "value": "\\\\nas01.corp.local\\share\\j3\\archive"
+  },
+  "j3ToolPath": {
+    "type": "String",
+    "value": "C:\\Tools\\OrchestratorSpike\\Convert-Extract.ps1"
+  },
+  "j3MaxFiles": {
+    "type": "Int",
+    "value": 100
+  },
+  "j3PollTimeout": {
+    "type": "String",
+    "value": "PT30M"
+  },
+  "j3PollCount": {
+    "type": "Int",
+    "value": 120
+  },
+  "automationSubscriptionId": {
+    "type": "String",
+    "value": "@appsetting('AUTOMATION_SUBSCRIPTION_ID')"
+  },
+  "automationResourceGroup": {
+    "type": "String",
+    "value": "@appsetting('AUTOMATION_RESOURCE_GROUP')"
+  },
+  "automationAccountName": {
+    "type": "String",
+    "value": "@appsetting('AUTOMATION_ACCOUNT_NAME')"
+  },
+  "hybridWorkerGroup": {
+    "type": "String",
+    "value": "@appsetting('HYBRID_WORKER_GROUP')"
+  },
+  "j4RecurrenceMinutes": {
+    "type": "Int",
+    "value": 15
+  },
+  "j4SourceFolder": {
+    "type": "String",
+    "value": "/outbound/j4"
+  },
+  "j4ArchiveFolder": {
+    "type": "String",
+    "value": "/outbound/archive"
+  },
+  "j4FinanceFolder": {
+    "type": "String",
+    "value": "j4\\finance"
+  },
+  "j4DocumentsFolder": {
+    "type": "String",
+    "value": "j4\\documents"
+  },
+  "j4IntegrationFolder": {
+    "type": "String",
+    "value": "j4\\integration"
+  },
+  "j4QuarantineFolder": {
+    "type": "String",
+    "value": "j4\\quarantine"
+  },
+  "j5WatchFolder": {
+    "type": "String",
+    "value": "folderwatch\\in"
+  },
+  "j5ProcessedFolder": {
+    "type": "String",
+    "value": "folderwatch\\processed"
   }
 }
