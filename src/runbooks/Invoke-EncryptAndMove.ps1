@@ -169,7 +169,22 @@ Assert-OutputFitsLimit $run $files
 $items = [System.Collections.Generic.List[object]]::new()
 $errors = [System.Collections.Generic.List[object]]::new()
 foreach ($file in $files) {
-    $item = Invoke-FileStep $settings $file
+    try {
+        $item = Invoke-FileStep $settings $file
+    }
+    catch [System.UnauthorizedAccessException] {
+        # Access denied on the share is one of the three fatal errors of SPEC section 5.9: the job must end Failed.
+        throw
+    }
+    catch {
+        # Any other error concerns this file only: record it, leave the source in place, and carry on,
+        # so the single JSON result is always written.
+        $message = $_.Exception.Message
+        Write-Verbose -Message "$($file.Name): failed: $message" -Verbose
+        $items.Add(@{ name = $file.Name; result = 'failed'; sha256 = $null; error = $message })
+        $errors.Add(@{ code = 'FILE_PROCESSING_FAILED'; message = $message; file = $file.Name })
+        continue
+    }
     $items.Add($item)
     if ($item.result -eq 'failed') {
         $errors.Add(@{ code = $item.error; message = 'Simulated failure.'; file = $item.name })

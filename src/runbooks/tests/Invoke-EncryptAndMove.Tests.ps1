@@ -217,14 +217,58 @@ BeforeEach {
         Get-DecryptedText (Join-Path $target 'changed.txt.gpg') | Should -Be 'new'
     }
 
-    It 'throws and preserves the source when encryption fails' {
+    It 'records a per-file failure, keeps that source and processes the other files' {
+        $lockedFile = Join-Path $source 'a-locked.txt'
+        Set-Content -LiteralPath $lockedFile -Value 'locked'
+        Set-Content -LiteralPath (Join-Path $source 'b-ok.txt') -Value 'ok'
+        # Pester 6 neither falls back to the real command when a filter does not match nor lets a mock call it,
+        # so the default mock computes the same SHA-256 with .NET.
+        Mock Get-FileHash {
+            $hashBytes = [System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($LiteralPath))
+            [pscustomobject]@{ Hash = [System.Convert]::ToHexString($hashBytes) }
+        }
+        Mock Get-FileHash { throw [System.IO.IOException]::new('The file is locked by another process.') } -ParameterFilter { $LiteralPath -like '*a-locked.txt' }
+
+        $output = @(& $runbook @parameters)
+        $result = $output[0] | ConvertFrom-Json
+
+        $output.Count | Should -Be 1
+        $result.status | Should -Be 'PartialFailure'
+        $result.filesFailed | Should -Be 1
+        $result.filesProcessed | Should -Be 1
+        $failedItems = @($result.items | Where-Object result -eq 'failed')
+        $failedItems.Count | Should -Be 1
+        $failedItems[0].name | Should -Be 'a-locked.txt'
+        $failedItems[0].sha256 | Should -BeNullOrEmpty
+        $failedItems[0].error | Should -Be 'The file is locked by another process.'
+        $result.errors[0].code | Should -Be 'FILE_PROCESSING_FAILED'
+        $result.errors[0].file | Should -Be 'a-locked.txt'
+        Test-Path -LiteralPath $lockedFile | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $target 'b-ok.txt.gpg') | Should -BeTrue
+    }
+
+    It 'records a gpg failure as a per-file failure and keeps the source' {
         Set-Content -LiteralPath (Join-Path $source 'file.txt') -Value 'content'
         $parameters.Recipient = 'missing-recipient@example.invalid'
 
-        { & $runbook @parameters } | Should -Throw
+        $output = @(& $runbook @parameters)
+        $result = $output[0] | ConvertFrom-Json
 
+        $output.Count | Should -Be 1
+        $result.status | Should -Be 'PartialFailure'
+        $result.errors[0].code | Should -Be 'FILE_PROCESSING_FAILED'
+        $result.errors[0].message | Should -BeLike 'GPG encryption failed for file.txt*'
         Test-Path -LiteralPath (Join-Path $source 'file.txt') | Should -BeTrue
         @(Get-ChildItem -LiteralPath $target -Force).Count | Should -Be 0
+    }
+
+    It 'throws when access to the share is denied' {
+        Set-Content -LiteralPath (Join-Path $source 'file.txt') -Value 'content'
+        Mock Get-FileHash { throw [System.UnauthorizedAccessException]::new('Access to the path is denied.') }
+
+        { & $runbook @parameters } | Should -Throw '*Access to the path is denied*'
+
+        Test-Path -LiteralPath (Join-Path $source 'file.txt') | Should -BeTrue
     }
 
     It 'does not leave a stale sidecar if writing the replacement sidecar fails' {
@@ -234,8 +278,9 @@ BeforeEach {
         Set-Content -LiteralPath $sourceFile -Value 'new' -NoNewline
         Mock Set-Content { throw 'Sidecar write failed' } -ParameterFilter { $LiteralPath -like '*.sha256' }
 
-        { & $runbook @parameters } | Should -Throw
+        $result = & $runbook @parameters | ConvertFrom-Json
 
+        $result.status | Should -Be 'PartialFailure'
         Test-Path -LiteralPath (Join-Path $target 'changed.txt.gpg.sha256') | Should -BeFalse
         Test-Path -LiteralPath $sourceFile | Should -BeTrue
     }

@@ -17,9 +17,13 @@ changing recipients requires removing the existing target or sidecar.
 Progress goes to `Write-Verbose -Verbose`; the only success-stream output is
 one compressed JSON result with counts,
 items, errors, worker, identity and timestamps, as specified in SPEC §5.9.
-Infrastructure errors throw. If the result could reach 1 MiB, the runbook
+Only the fatal errors of SPEC section 5.9 throw (source path not reachable, gpg
+not installed, access denied on the share). Any other error on one file (locked
+source, gpg failure, archive name collision) is recorded as a failed item with
+an error `FILE_PROCESSING_FAILED`; that source stays in place, the other files
+are processed, and the status is `PartialFailure`. If the result could reach 1 MiB, the runbook
 throws before processing; reduce `MaxFiles` or `CorrelationId` length.
-Archive name collisions also throw rather than overwrite an existing archive.
+An existing archive is never overwritten: a name collision fails that file.
 
 Run the tests on Linux or Windows with PowerShell 7.4, Pester 5 or later, and
 GPG on PATH:
