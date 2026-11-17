@@ -52,4 +52,53 @@ function Restore { Set-Content -LiteralPath '__RESTORE_MARKER__' -Value 'restore
         $exitCode | Should -Be 1
         Should -Invoke Start-Workflow -Times 0
     }
+
+    It 'fails a full run when a mandatory scenario has no script' {
+        $scenarioRoot = Join-Path $TestDrive 'partial-scenarios'
+        New-Item -ItemType Directory -Path $scenarioRoot | Out-Null
+        $passingScenario = @'
+function Reset {}
+function Seed {}
+function GetWorkflowName { 'wf-egress' }
+function Assert { param($Run) return $true }
+function GetEvidence { param($Run) return @{} }
+function Restore {}
+'@
+        Set-Content -LiteralPath (Join-Path $scenarioRoot 'T01-egress-ip.ps1') -Value $passingScenario
+        $reportPath = Join-Path $TestDrive 'partial-report.md'
+        Mock Get-TestEnvironment { return @{} }
+        Mock Start-Workflow { return [pscustomobject]@{ WorkflowName = 'wf-egress'; RunId = 'run-1' } }
+        Mock Wait-WorkflowRun { return [pscustomobject]@{ RunId = 'run-1'; Status = 'Succeeded'; Actions = @(); TrackedProperties = @{} } }
+
+        $exitCode = Invoke-TestRunner -ScenarioRoot $scenarioRoot -ReportPath $reportPath
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -LiteralPath $reportPath -Raw
+        $report | Should -Match '\| T01-egress-ip \| Passed \|'
+        $report | Should -Match '\| T15 \| Failed \|.*No scenario script found'
+    }
+
+    It 'accepts -Only T01,T02 as one comma-separated string, as pwsh -File passes it' {
+        $scenarioRoot = Join-Path $TestDrive 'comma-scenarios'
+        New-Item -ItemType Directory -Path $scenarioRoot | Out-Null
+        $passingScenario = @'
+function Reset {}
+function Seed {}
+function GetWorkflowName { 'wf-example' }
+function Assert { param($Run) return $true }
+function GetEvidence { param($Run) return @{} }
+function Restore {}
+'@
+        foreach ($fileName in @('T01-egress-ip.ps1', 'T02-ftp.ps1', 'T03-sftp.ps1')) {
+            Set-Content -LiteralPath (Join-Path $scenarioRoot $fileName) -Value $passingScenario
+        }
+        Mock Get-TestEnvironment { return @{} }
+        Mock Start-Workflow { return [pscustomobject]@{ WorkflowName = 'wf-example'; RunId = 'run-1' } }
+        Mock Wait-WorkflowRun { return [pscustomobject]@{ RunId = 'run-1'; Status = 'Succeeded'; Actions = @(); TrackedProperties = @{} } }
+
+        $exitCode = Invoke-TestRunner -ScenarioRoot $scenarioRoot -ReportPath (Join-Path $TestDrive 'comma-report.md') -Only 'T01, t02'
+
+        $exitCode | Should -Be 0
+        Should -Invoke Start-Workflow -Times 2
+    }
 }

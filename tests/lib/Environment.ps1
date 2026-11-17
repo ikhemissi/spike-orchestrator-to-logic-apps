@@ -36,58 +36,84 @@ function ConvertFrom-AzdValue {
     return $values
 }
 
-function Get-TestEnvironment {
+# The SPEC section 1 contract. SHAREPOINT_SITE_ID is not listed: it is required only when ENABLE_SHAREPOINT is true.
+$script:TestEnvironmentNames = @(
+    'AZURE_RESOURCE_GROUP',
+    'AZURE_SUBSCRIPTION_ID',
+    'AZURE_LOCATION',
+    'KEY_VAULT_NAME',
+    'LOGIC_APP_NAME',
+    'NAT_PUBLIC_IP',
+    'PARTNER_VM_NAME',
+    'PARTNER_VM_FQDN',
+    'PARTNER_NSG_NAME',
+    'NAS_VM_NAME',
+    'NAS_SHARE_UNC',
+    'WORKER_VM_NAMES',
+    'SERVERS_NSG_NAME',
+    'AUTOMATION_ACCOUNT_NAME',
+    'HYBRID_WORKER_GROUP',
+    'DATA_STORAGE_ACCOUNT_NAME',
+    'LOG_ANALYTICS_WORKSPACE_ID',
+    'ALERT_EMAIL',
+    'DEPLOYER_IP',
+    'ENABLE_SHAREPOINT'
+)
+
+function Get-RequiredTestName {
     param(
-        [string[]]$RequiredNames = @(
-            'AZURE_RESOURCE_GROUP',
-            'AZURE_SUBSCRIPTION_ID',
-            'AZURE_LOCATION',
-            'KEY_VAULT_NAME',
-            'LOGIC_APP_NAME',
-            'NAT_PUBLIC_IP',
-            'PARTNER_VM_NAME',
-            'PARTNER_VM_FQDN',
-            'PARTNER_NSG_NAME',
-            'NAS_VM_NAME',
-            'NAS_SHARE_UNC',
-            'WORKER_VM_NAMES',
-            'SERVERS_NSG_NAME',
-            'AUTOMATION_ACCOUNT_NAME',
-            'HYBRID_WORKER_GROUP',
-            'DATA_STORAGE_ACCOUNT_NAME',
-            'LOG_ANALYTICS_WORKSPACE_ID',
-            'ALERT_EMAIL',
-            'DEPLOYER_IP',
-            'ENABLE_SHAREPOINT',
-            'SHAREPOINT_SITE_ID'
-        )
+        [Parameter(Mandatory)][string[]]$RequiredNames,
+        [Parameter(Mandatory)][hashtable]$Values
     )
 
+    $isSharePointEnabled = $Values['ENABLE_SHAREPOINT'] -eq 'true'
+    if ($isSharePointEnabled -and $RequiredNames -notcontains 'SHAREPOINT_SITE_ID') {
+        return @($RequiredNames) + 'SHAREPOINT_SITE_ID'
+    }
+    return @($RequiredNames)
+}
+
+function Add-AzdTestValue {
+    # Fills only the names still missing; values already in the environment win.
+    param(
+        [Parameter(Mandatory)][hashtable]$Values,
+        [Parameter(Mandatory)][string[]]$Names
+    )
+
+    $azdValues = ConvertFrom-AzdValue -Lines @(Invoke-AzdGetValue)
+    foreach ($name in $Names) {
+        $isMissing = -not $Values.ContainsKey($name)
+        if ($isMissing -and $azdValues.ContainsKey($name) -and -not [string]::IsNullOrWhiteSpace($azdValues[$name])) {
+            $Values[$name] = $azdValues[$name]
+        }
+    }
+}
+
+function Get-TestEnvironment {
+    param([string[]]$RequiredNames = $script:TestEnvironmentNames)
+
+    $wantedNames = @((@($RequiredNames) + 'SHAREPOINT_SITE_ID') | Select-Object -Unique)
     $values = @{}
-    foreach ($name in $RequiredNames) {
+    foreach ($name in $wantedNames) {
         $environmentValue = [Environment]::GetEnvironmentVariable($name)
         if (-not [string]::IsNullOrWhiteSpace($environmentValue)) {
             $values[$name] = $environmentValue
         }
     }
 
-    $missing = @($RequiredNames | Where-Object { -not $values.ContainsKey($_) })
     $loadError = $null
+    $missing = @(Get-RequiredTestName -RequiredNames $RequiredNames -Values $values | Where-Object { -not $values.ContainsKey($_) })
     if ($missing.Count -gt 0) {
         try {
-            $azdValues = ConvertFrom-AzdValue -Lines @(Invoke-AzdGetValue)
-            foreach ($name in $missing) {
-                if ($azdValues.ContainsKey($name) -and -not [string]::IsNullOrWhiteSpace($azdValues[$name])) {
-                    $values[$name] = $azdValues[$name]
-                }
-            }
+            Add-AzdTestValue -Values $values -Names $wantedNames
         }
         catch {
             $loadError = $_.Exception.Message
         }
     }
 
-    $missing = @($RequiredNames | Where-Object { -not $values.ContainsKey($_) })
+    # Checked again: ENABLE_SHAREPOINT itself may have come from azd.
+    $missing = @(Get-RequiredTestName -RequiredNames $RequiredNames -Values $values | Where-Object { -not $values.ContainsKey($_) })
     if ($missing.Count -gt 0) {
         $message = "Missing required azd environment values: $($missing -join ', ')"
         if ($loadError) {

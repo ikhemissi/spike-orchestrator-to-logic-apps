@@ -1,28 +1,36 @@
 # File checks for the test runner: partner FTP/SFTP with curl, the Windows NAS with VM Run Command, blobs with Entra sign-in.
 
-function Invoke-CurlCommand {
-    param([Parameter(Mandatory)][string[]]$Arguments)
+function ConvertTo-CurlUserConfig {
+    # curl config syntax: a quoted value escapes backslashes and double quotes.
+    param([Parameter(Mandatory)][System.Management.Automation.PSCredential]$Credential)
 
-    $output = & curl @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "curl command failed: $output"
-    }
-
-    return $output
+    $userAndPassword = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
+    $escapedValue = $userAndPassword.Replace('\', '\\').Replace('"', '\"')
+    return "user = `"$escapedValue`""
 }
 
-function Get-CurlAuthenticationArgument {
-    # Partner A (FTP) signs in with a password, partner B (SFTP) with an SSH key (SPEC section 3).
+function Invoke-CurlCommand {
+    # A password travels on stdin (--config -), never on the command line where other processes can read it.
     param(
-        [System.Management.Automation.PSCredential]$Credential,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [System.Management.Automation.PSCredential]$Credential
+    )
+
+    if (-not $Credential) {
+        return Invoke-ExternalCommand -Name 'curl' -Arguments $Arguments
+    }
+    $userConfig = ConvertTo-CurlUserConfig -Credential $Credential
+    return Invoke-ExternalCommand -Name 'curl' -Arguments (@('--config', '-') + $Arguments) -InputText $userConfig
+}
+
+function Get-CurlKeyArgument {
+    # Partner A (FTP) signs in with a password, passed by Invoke-CurlCommand;
+    # partner B (SFTP) with an SSH key (SPEC section 3).
+    param(
         [string]$UserName,
         [string]$PrivateKeyPath
     )
 
-    if ($Credential) {
-        $password = $Credential.GetNetworkCredential().Password
-        return @('--user', "$($Credential.UserName):$password")
-    }
     if ($PrivateKeyPath) {
         return @('--user', "$($UserName):", '--key', $PrivateKeyPath)
     }
@@ -41,9 +49,9 @@ function Get-PartnerFile {
     if ($Url -match '^ftp://') {
         $arguments += '--ftp-pasv'
     }
-    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
+    $arguments += Get-CurlKeyArgument -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $Url
-    return @(Invoke-CurlCommand -Arguments $arguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    return @(Invoke-CurlCommand -Arguments $arguments -Credential $Credential | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
 function Send-PartnerFile {
@@ -60,9 +68,9 @@ function Send-PartnerFile {
     }
 
     $arguments = @('--silent', '--show-error', '--upload-file', $LocalPath)
-    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
+    $arguments += Get-CurlKeyArgument -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $DestinationUrl
-    Invoke-CurlCommand -Arguments $arguments | Out-Null
+    Invoke-CurlCommand -Arguments $arguments -Credential $Credential | Out-Null
 }
 
 function Remove-PartnerFile {
@@ -87,9 +95,9 @@ function Remove-PartnerFile {
     $deleteCommand = if ($fileUri.Scheme -eq 'sftp') { "rm $filePath" } else { "DELE $filePath" }
 
     $arguments = @('--silent', '--show-error', '--list-only', '--quote', $deleteCommand)
-    $arguments += Get-CurlAuthenticationArgument -Credential $Credential -UserName $UserName -PrivateKeyPath $PrivateKeyPath
+    $arguments += Get-CurlKeyArgument -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $folderUrl
-    Invoke-CurlCommand -Arguments $arguments | Out-Null
+    Invoke-CurlCommand -Arguments $arguments -Credential $Credential | Out-Null
 }
 
 function Invoke-NasCommand {

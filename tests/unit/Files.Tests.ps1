@@ -57,6 +57,26 @@ Describe 'Partner file helpers' {
     }
 }
 
+Describe 'Partner password handling' {
+    It 'passes an FTP password to curl on stdin, never on the command line' {
+        Mock Invoke-ExternalCommand { 'one.csv' }
+        $password = [Security.SecureString]::new()
+        foreach ($character in 'p@ss"word'.ToCharArray()) {
+            $password.AppendChar($character)
+        }
+        $credential = [System.Management.Automation.PSCredential]::new('partner-a', $password)
+
+        Get-PartnerFile -Url 'ftp://partner.example/outbound/' -Credential $credential | Should -Be 'one.csv'
+
+        Should -Invoke Invoke-ExternalCommand -Times 1 -ParameterFilter {
+            $Name -eq 'curl' -and
+            ($Arguments -join ' ') -notmatch 'p@ss' -and
+            ($Arguments -join ' ') -match '^--config - ' -and
+            $InputText -eq 'user = "partner-a:p@ss\"word"'
+        }
+    }
+}
+
 Describe 'NAS file helpers' {
     It 'lists NAS files with a PowerShell Run Command, since the NAS VM runs Windows' {
         $nasEnvironment = @{ AZURE_RESOURCE_GROUP = 'rg-test'; NAS_VM_NAME = 'vm-nas01' }

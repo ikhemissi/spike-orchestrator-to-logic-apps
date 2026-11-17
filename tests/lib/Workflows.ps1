@@ -2,15 +2,40 @@
 
 $script:LogicAppsManagementApiVersion = '2018-11-01' # VERIFY: confirm the Standard workflow management API version and URL shape.
 
+$script:TerminalRunStatuses = @('Succeeded', 'Failed', 'Cancelled', 'TimedOut', 'Aborted', 'Faulted', 'Skipped', 'Ignored')
+
+function Invoke-ExternalCommand {
+    # stderr goes to a file, not into the output: az and curl print warnings there,
+    # which would corrupt the JSON or file listings parsed from stdout.
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [string]$InputText
+    )
+
+    $errorPath = [IO.Path]::GetTempFileName()
+    try {
+        if ($InputText) {
+            $output = $InputText | & $Name @Arguments 2> $errorPath
+        }
+        else {
+            $output = & $Name @Arguments 2> $errorPath
+        }
+        if ($LASTEXITCODE -ne 0) {
+            $errorText = "$(Get-Content -LiteralPath $errorPath -Raw)".Trim()
+            throw "$Name command failed with exit code $($LASTEXITCODE): $errorText"
+        }
+        return $output
+    }
+    finally {
+        Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-AzCommand {
     param([Parameter(Mandatory)][string[]]$Arguments)
 
-    $output = & az @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "az command failed: $output"
-    }
-
-    return $output
+    return Invoke-ExternalCommand -Name 'az' -Arguments $Arguments
 }
 
 function Get-WorkflowManagementUrl {
@@ -18,7 +43,8 @@ function Get-WorkflowManagementUrl {
         [Parameter(Mandatory)][hashtable]$Environment,
         [Parameter(Mandatory)][string]$WorkflowName,
         [string]$RunId,
-        [string]$TriggerName
+        [string]$TriggerName,
+        [switch]$RunList
     )
 
     $subscription = [uri]::EscapeDataString($Environment.AZURE_SUBSCRIPTION_ID)
@@ -35,8 +61,11 @@ function Get-WorkflowManagementUrl {
         $run = [uri]::EscapeDataString($RunId)
         return "$baseUrl/runs/$run"
     }
+    if ($RunList) {
+        return "$baseUrl/runs?api-version=$script:LogicAppsManagementApiVersion"
+    }
 
-    throw 'A trigger name or run ID is required.'
+    throw 'A trigger name, a run ID or -RunList is required.'
 }
 
 function Invoke-WorkflowManagementRequest {
@@ -65,35 +94,69 @@ function Invoke-WorkflowManagementRequest {
     }
 }
 
+function ConvertTo-UtcTime {
+    # ConvertFrom-Json turns ISO 8601 strings into DateTime values; keep both forms working.
+    param([Parameter(Mandatory)][object]$Value)
+
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
+            return [datetime]::SpecifyKind($Value, [DateTimeKind]::Utc)
+        }
+        return $Value.ToUniversalTime()
+    }
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    return [datetime]::Parse([string]$Value, [Globalization.CultureInfo]::InvariantCulture, $styles)
+}
+
+function Find-WorkflowRunStartedSince {
+    param(
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [Parameter(Mandatory)][string]$WorkflowName,
+        [Parameter(Mandatory)][datetime]$TriggeredAtUtc
+    )
+
+    $url = Get-WorkflowManagementUrl -Environment $Environment -WorkflowName $WorkflowName -RunList
+    $response = Invoke-WorkflowManagementRequest -Method get -Url $url
+    $newRuns = @($response.value | Where-Object { $_ -and $_.properties.startTime } | Where-Object {
+        (ConvertTo-UtcTime -Value $_.properties.startTime) -ge $TriggeredAtUtc
+    })
+    if ($newRuns.Count -eq 0) {
+        return $null
+    }
+    $newestRun = $newRuns | Sort-Object { ConvertTo-UtcTime -Value $_.properties.startTime } -Descending | Select-Object -First 1
+    return [string]$newestRun.name
+}
+
 function Start-Workflow {
+    # The trigger call answers 202 with an empty body and the run ID only in a header that az rest
+    # does not print, so the run is found afterwards: the newest one started since the call.
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)][hashtable]$Environment,
         [Parameter(Mandatory)][string]$WorkflowName,
-        [string]$TriggerName = 'Recurrence'
+        [string]$TriggerName = 'Recurrence',
+        [timespan]$StartTimeout = ([timespan]::FromMinutes(2)),
+        [timespan]$PollInterval = ([timespan]::FromSeconds(5))
     )
 
     $url = Get-WorkflowManagementUrl -Environment $Environment -WorkflowName $WorkflowName -TriggerName $TriggerName
     if (-not $PSCmdlet.ShouldProcess($WorkflowName, "Trigger '$TriggerName'")) {
         return
     }
-    $response = Invoke-WorkflowManagementRequest -Method post -Url $url
-    $runId = $response.runId
-    if (-not $runId) {
-        $runId = $response.name
-    }
-    if (-not $runId -and $response.id) {
-        $runId = [uri]::UnescapeDataString(([string]$response.id).TrimEnd('/').Split('/')[-1])
-    }
-    if (-not $runId) {
-        throw "The trigger response for '$WorkflowName' did not include a run ID."
-    }
+    $triggeredAtUtc = [datetime]::UtcNow
+    Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
 
-    return [pscustomobject]@{
-        WorkflowName = $WorkflowName
-        TriggerName = $TriggerName
-        RunId = [string]$runId
-    }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $runId = Find-WorkflowRunStartedSince -Environment $Environment -WorkflowName $WorkflowName -TriggeredAtUtc $triggeredAtUtc
+        if ($runId) {
+            return [pscustomobject]@{ WorkflowName = $WorkflowName; TriggerName = $TriggerName; RunId = $runId }
+        }
+        if ($clock.Elapsed -ge $StartTimeout) {
+            throw "Timed out after $StartTimeout waiting for a run of '$WorkflowName' started by trigger '$TriggerName'."
+        }
+        Start-Sleep -Milliseconds ([Math]::Min($PollInterval.TotalMilliseconds, ($StartTimeout - $clock.Elapsed).TotalMilliseconds))
+    } while ($true)
 }
 
 function Get-WorkflowRun {
@@ -158,7 +221,7 @@ function Wait-WorkflowRun {
         if (-not $status) {
             $status = [string]$runStatus.status
         }
-        if ($status -in @('Succeeded', 'Failed', 'Cancelled', 'TimedOut', 'Aborted', 'Faulted')) {
+        if ($status -in $script:TerminalRunStatuses) {
             $actions = @(Get-WorkflowRunAction -Environment $Environment -WorkflowName $Run.WorkflowName -RunId $Run.RunId)
             return [pscustomobject]@{
                 WorkflowName = $Run.WorkflowName

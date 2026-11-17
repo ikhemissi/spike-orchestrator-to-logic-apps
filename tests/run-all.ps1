@@ -178,6 +178,13 @@ function Invoke-OneScenario {
     return [pscustomobject]$result
 }
 
+function ConvertTo-ScenarioIdList {
+    # `pwsh -File run-all.ps1 -Only T01,T02` passes one string "T01,T02", so entries are split here.
+    param([string[]]$Only)
+
+    return @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ })
+}
+
 function Get-TestScenarioFile {
     param(
         [Parameter(Mandatory)][string]$ScenarioRoot,
@@ -196,7 +203,7 @@ function Get-TestScenarioFile {
         }
     }
     if ($Only) {
-        $selected = @($Only | ForEach-Object { $_.Trim().ToUpperInvariant() })
+        $selected = ConvertTo-ScenarioIdList -Only $Only
         $files = @($files | Where-Object {
             $selected -contains (Get-ScenarioId -Name $_.BaseName)
         })
@@ -220,9 +227,24 @@ function Assert-RequestedScenarioFound {
         return
     }
     $foundIds = @($ScenarioFiles | ForEach-Object { Get-ScenarioId -Name $_.BaseName })
-    $missingIds = @($Only | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $foundIds -notcontains $_ })
+    $missingIds = @(ConvertTo-ScenarioIdList -Only $Only | Where-Object { $foundIds -notcontains $_ })
     if ($missingIds.Count -gt 0) {
         throw "Scenario(s) not found: $($missingIds -join ', ')"
+    }
+}
+
+function Get-MissingMandatoryResult {
+    # A full run must cover every mandatory scenario: one without a script counts as failed.
+    param([Parameter(Mandatory)][object[]]$Results)
+
+    $ranIds = @($Results | ForEach-Object { Get-ScenarioId -Name $_.Name })
+    foreach ($mandatoryId in $script:MandatoryScenarioNames) {
+        if ($ranIds -contains $mandatoryId) {
+            continue
+        }
+        $missingResult = Get-EmptyScenarioResult -Name $mandatoryId
+        $missingResult.Details = 'No scenario script found for this mandatory scenario.'
+        [pscustomobject]$missingResult
     }
 }
 
@@ -260,6 +282,9 @@ function Invoke-TestRunner {
         $results = @(foreach ($scenarioFile in $scenarioFiles) {
             Invoke-OneScenario -ScenarioFile $scenarioFile -Environment $environment
         })
+        if (-not $Only) {
+            $results += @(Get-MissingMandatoryResult -Results $results)
+        }
 
         Write-Information (Format-TestSummary -Results $results) -InformationAction Continue
         Write-TestReport -Results $results -Path $ReportPath | Out-Null

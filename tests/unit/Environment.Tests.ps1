@@ -36,4 +36,21 @@ Describe 'Get-TestEnvironment' {
         { Get-TestEnvironment -RequiredNames @('RUNNER_MISSING_ONE', 'RUNNER_MISSING_TWO') } |
             Should -Throw '*RUNNER_MISSING_ONE, RUNNER_MISSING_TWO*'
     }
+
+    It 'does not require SHAREPOINT_SITE_ID when ENABLE_SHAREPOINT is false' {
+        $script:contractLines = @($script:TestEnvironmentNames | ForEach-Object { "$_=`"value`"" })
+        $script:contractLines += 'ENABLE_SHAREPOINT="false"'
+        Mock Invoke-AzdGetValue { $script:contractLines }
+
+        $environment = Get-TestEnvironment
+
+        $environment.ENABLE_SHAREPOINT | Should -Be 'false'
+        $environment.ContainsKey('SHAREPOINT_SITE_ID') | Should -BeFalse
+    }
+
+    It 'requires SHAREPOINT_SITE_ID when azd sets ENABLE_SHAREPOINT to true' {
+        Mock Invoke-AzdGetValue { 'ENABLE_SHAREPOINT="true"' }
+
+        { Get-TestEnvironment -RequiredNames @('ENABLE_SHAREPOINT') } | Should -Throw '*SHAREPOINT_SITE_ID*'
+    }
 }
