@@ -18,6 +18,7 @@ variables {
   subscription_id             = "00000000-0000-0000-0000-000000000000"
   location                    = "francecentral"
   tags                        = ""
+  deployer_ip                 = "192.0.2.1"
   alert_email                 = ""
   critical_job_deadline_hours = 1
 }
@@ -31,8 +32,28 @@ run "alert_resources_without_email" {
   }
 
   assert {
+    condition     = alltrue([for alert in values(azurerm_monitor_scheduled_query_rules_alert_v2.alerts) : alert.skip_query_validation])
+    error_message = "Scheduled query rules must be created even before their tables exist."
+  }
+
+  assert {
     condition     = length(azurerm_monitor_action_group.alerts.email_receiver) == 0
     error_message = "An empty ALERT_EMAIL must not configure an email receiver."
+  }
+
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.alerts["critical_job_deadline"].criteria[0].query, "OperationName == \"WorkflowRunCompleted\"")
+    error_message = "The critical job alert must count completed workflow runs, not action rows."
+  }
+
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.alerts["workflow_failed"].criteria[0].query, "OperationName == \"WorkflowRunCompleted\"")
+    error_message = "The workflow failure alert must count completed workflow runs, not action rows."
+  }
+
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.alerts["hybrid_job_stuck"].criteria[0].query, "arg_max(TimeGenerated, ResultType) by JobId_g")
+    error_message = "The hybrid-job alert must evaluate each job's latest Automation status."
   }
 
   assert {

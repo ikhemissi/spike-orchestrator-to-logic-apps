@@ -106,6 +106,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "alerts" {
   query_time_range_override = each.value.query_time_range_override
   scopes                    = [module.monitoring.log_analytics_workspace_id]
   auto_mitigation_enabled   = true
+  skip_query_validation     = true
   tags                      = local.tags
 
   criteria {

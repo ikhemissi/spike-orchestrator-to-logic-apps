@@ -2,8 +2,9 @@
 let StuckAutomationJobs =
     AzureDiagnostics
     | where Category == "JobLogs"
-    | where TimeGenerated <= ago(10m)
+    | summarize arg_max(TimeGenerated, ResultType) by JobId_g
     | where ResultType == "Queued"
+    | where TimeGenerated <= ago(10m)
     | count;
 let TimedOutWorkflowRuns =
     LogicAppWorkflowRuntime

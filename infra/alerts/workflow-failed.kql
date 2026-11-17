@@ -1,5 +1,6 @@
-// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, Status, and TimeGenerated columns.
+// VERIFY: LogicAppWorkflowRuntime table and OperationName, WorkflowName, Status, and TimeGenerated columns.
 LogicAppWorkflowRuntime
 | where TimeGenerated >= ago(5m)
+| where OperationName == "WorkflowRunCompleted"
 | where WorkflowName startswith "wf-j"
 | summarize FailedRuns = countif(Status == "Failed")

@@ -1,6 +1,7 @@
-// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, Status, and TimeGenerated columns.
+// VERIFY: LogicAppWorkflowRuntime table and OperationName, WorkflowName, Status, and TimeGenerated columns.
 let Deadline = ago(__DEADLINE_HOURS__h);
 LogicAppWorkflowRuntime
 | where TimeGenerated >= Deadline
+| where OperationName == "WorkflowRunCompleted"
 | where WorkflowName == "wf-j3-convert-onprem"
 | summarize SuccessfulRuns = countif(Status == "Succeeded")
