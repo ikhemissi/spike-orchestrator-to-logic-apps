@@ -271,6 +271,63 @@ BeforeEach {
         Test-Path -LiteralPath (Join-Path $source 'file.txt') | Should -BeTrue
     }
 
+    Context 'gpg location' {
+        BeforeEach {
+            # An empty GNUPGHOME has no key for the recipient: encryption only works if --homedir is passed.
+            $script:emptyGpgHome = Join-Path $root 'empty-gnupg'
+            [void](New-Item -ItemType Directory -Path $emptyGpgHome)
+            if (-not $IsWindows) {
+                & chmod 700 $emptyGpgHome
+            }
+            $env:GNUPGHOME = $emptyGpgHome
+            $script:originalProgramData = $env:ProgramData
+            $env:ProgramData = Join-Path $root 'programdata'
+            $script:configFile = Join-Path $env:ProgramData 'OrchestratorSpike' 'gpg.json'
+            [void](New-Item -ItemType Directory -Path (Split-Path -Parent $configFile))
+            $script:realGpgPath = (Get-Command gpg -CommandType Application | Select-Object -First 1).Source
+            Set-Content -LiteralPath (Join-Path $source 'file.txt') -Value 'content'
+        }
+
+        AfterEach {
+            $env:GNUPGHOME = $gpgHome
+            $env:ProgramData = $originalProgramData
+        }
+
+        It 'uses the gpg path and home directory given as parameters' {
+            $result = & $runbook @parameters -GpgPath $realGpgPath -GpgHomeDir $gpgHome | ConvertFrom-Json
+
+            $result.status | Should -Be 'Succeeded'
+            $result.filesProcessed | Should -Be 1
+        }
+
+        It 'reads the gpg path and home directory from the config file in ProgramData' {
+            @{ gpgPath = $realGpgPath; homeDir = $gpgHome } | ConvertTo-Json | Set-Content -LiteralPath $configFile
+
+            $result = & $runbook @parameters | ConvertFrom-Json
+
+            $result.status | Should -Be 'Succeeded'
+            $result.filesProcessed | Should -Be 1
+        }
+
+        It 'throws when the configured gpg path does not exist' {
+            $missingGpg = Join-Path $root 'missing-gpg'
+            @{ gpgPath = $missingGpg; homeDir = $gpgHome } | ConvertTo-Json | Set-Content -LiteralPath $configFile
+
+            { & $runbook @parameters } | Should -Throw '*GPG is not installed at*'
+
+            Test-Path -LiteralPath (Join-Path $source 'file.txt') | Should -BeTrue
+        }
+
+        It 'prefers the parameters over the config file' {
+            $missingGpg = Join-Path $root 'missing-gpg'
+            @{ gpgPath = $missingGpg; homeDir = $emptyGpgHome } | ConvertTo-Json | Set-Content -LiteralPath $configFile
+
+            $result = & $runbook @parameters -GpgPath $realGpgPath -GpgHomeDir $gpgHome | ConvertFrom-Json
+
+            $result.filesProcessed | Should -Be 1
+        }
+    }
+
     It 'does not leave a stale sidecar if writing the replacement sidecar fails' {
         $sourceFile = Join-Path $source 'changed.txt'
         Set-Content -LiteralPath $sourceFile -Value 'old' -NoNewline

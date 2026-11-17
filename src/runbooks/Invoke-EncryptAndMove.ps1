@@ -26,7 +26,13 @@ param(
     [ValidateRange(1, [int]::MaxValue)]
     [int] $MaxFiles = 100,
 
-    [switch] $SimulateFailure
+    [switch] $SimulateFailure,
+
+    # Optional: an Automation job may not see machine-wide PATH or GNUPGHOME changes on a Windows worker.
+    # When not given, read from %ProgramData%\OrchestratorSpike\gpg.json, else gpg on PATH and the default home.
+    [string] $GpgPath,
+
+    [string] $GpgHomeDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +57,37 @@ function Find-GpgPath {
         }
     }
     throw 'GPG is not installed: not on PATH nor in the Gpg4win default folder.'
+}
+
+function Read-GpgConfigFile {
+    if (-not $env:ProgramData) {
+        return @{}
+    }
+    $configPath = Join-Path $env:ProgramData 'OrchestratorSpike' 'gpg.json'
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        return @{}
+    }
+    Write-Verbose -Message "Reading the gpg settings from $configPath" -Verbose
+    return Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -AsHashtable
+}
+
+function Resolve-GpgSetting([string] $ExecutablePath, [string] $HomeDir) {
+    # Precedence per value: parameter, then config file, then PATH (executable) or gpg's default (home).
+    if (-not $ExecutablePath -or -not $HomeDir) {
+        $config = Read-GpgConfigFile
+        if (-not $ExecutablePath) { $ExecutablePath = $config.gpgPath }
+        if (-not $HomeDir) { $HomeDir = $config.homeDir }
+    }
+    if (-not $ExecutablePath) {
+        $ExecutablePath = Find-GpgPath
+    }
+    elseif (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
+        throw "GPG is not installed at $ExecutablePath."
+    }
+    if ($HomeDir) {
+        $HomeDir = Resolve-Directory $HomeDir
+    }
+    return @{ Path = $ExecutablePath; HomeDir = $HomeDir }
 }
 
 function Resolve-Directory([string] $Path) {
@@ -101,11 +138,17 @@ function Test-AlreadyEncrypted([string] $Target, [string] $Sidecar, [string] $Ha
     return $recordedHash -eq $Hash
 }
 
-function Protect-File([string] $GpgPath, [string] $Recipient, [System.IO.FileInfo] $File, [string] $Target, [string] $Sidecar, [string] $Hash) {
+function Protect-File([hashtable] $Settings, [System.IO.FileInfo] $File, [string] $Target, [string] $Sidecar, [string] $Hash) {
     # Encrypt to a temporary file then rename, so a reader never sees a half-written target.
     $temporaryTarget = Join-Path (Split-Path -Parent $Target) ".$([guid]::NewGuid().ToString('N')).tmp"
     try {
-        $gpgMessages = & $GpgPath --batch --yes --trust-model always --recipient $Recipient --output $temporaryTarget --encrypt $File.FullName 2>&1
+        $gpgArguments = @()
+        if ($Settings.Gpg.HomeDir) {
+            $gpgArguments += @('--homedir', $Settings.Gpg.HomeDir)
+        }
+        $gpgArguments += @('--batch', '--yes', '--trust-model', 'always', '--recipient', $Settings.Recipient)
+        $gpgArguments += @('--output', $temporaryTarget, '--encrypt', $File.FullName)
+        $gpgMessages = & $Settings.Gpg.Path @gpgArguments 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "GPG encryption failed for $($File.Name): $($gpgMessages -join ' ')"
         }
@@ -141,7 +184,7 @@ function Invoke-FileStep([hashtable] $Settings, [System.IO.FileInfo] $File) {
     $sidecar = "$target.sha256"
     $result = 'skipped'
     if (-not (Test-AlreadyEncrypted $target $sidecar $hash)) {
-        Protect-File $Settings.GpgPath $Settings.Recipient $File $target $sidecar $hash
+        Protect-File $Settings $File $target $sidecar $hash
         $result = 'encrypted'
     }
     Move-ToArchive $File $Settings.ArchiveDirectory
@@ -156,7 +199,7 @@ $run = @{
     RunAs = [string](& whoami)
 }
 $settings = @{
-    GpgPath = Find-GpgPath
+    Gpg = Resolve-GpgSetting $GpgPath $GpgHomeDir
     Recipient = $Recipient
     TargetDirectory = Resolve-Directory $TargetPath
     ArchiveDirectory = Resolve-Directory $ArchivePath

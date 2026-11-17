@@ -3,9 +3,19 @@
 `Invoke-EncryptAndMove.ps1` requires PowerShell 7.4, GPG and an accessible
 public key for `Recipient`. Supply `CorrelationId`, `SourcePath`, `TargetPath`,
 `ArchivePath` and `Recipient` (all mandatory: none has a sensible default);
-`MaxFiles` defaults to 100. Directories must already exist. GPG is found on
-PATH or in the default Gpg4win folder under `Program Files` or
-`Program Files (x86)`.
+`MaxFiles` defaults to 100. Directories must already exist.
+
+GPG location: an Automation job on a Windows worker may not see machine-wide
+`PATH` or `GNUPGHOME` changes, so each value is taken from, in order:
+
+1. the optional parameters `-GpgPath` and `-GpgHomeDir`;
+2. `gpgPath` and `homeDir` in `%ProgramData%\OrchestratorSpike\gpg.json`,
+   for example `{"gpgPath": "C:\\Program Files\\GnuPG\\bin\\gpg.exe", "homeDir": "D:\\gnupg"}`;
+3. `gpg` on PATH or the default Gpg4win folder under `Program Files` or
+   `Program Files (x86)`, and gpg's default home.
+
+When a home directory is known, gpg runs with `--homedir`. A configured gpg
+path or home directory that does not exist is fatal.
 
 Files are processed in name order. Encrypted output is written as `<name>.gpg`
 with a SHA-256 sidecar; a matching target and sidecar skips encryption. Both
