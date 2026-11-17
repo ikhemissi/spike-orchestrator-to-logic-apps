@@ -1,12 +1,16 @@
-# The networks of SPEC §3.1: the spoke (Logic App integration with NAT Gateway egress, private endpoints), the
-# simulated datacenter peered to it (the VPN/ExpressRoute stand-in), the unpeered partner network reached over the
-# Internet, the corp.local private DNS zone and the NSGs. The network module is not in this repository yet, so the
-# resources are declared here.
-# Module calls read their subnet from local.network and their private endpoint from local.private_endpoint:
-#   local.network.subnet_ids: subnet ids by role ("container-apps", "private-endpoints", "servers", "partner");
+# No virtual network: every service is reached over its public endpoint, with Entra authentication. Module calls read
+# their subnet from local.network and their private endpoint from local.private_endpoint. To use a virtual network,
+# replace this file with a call to modules/network (copy it from the catalog) and set, from its outputs:
+#   local.network.subnet_ids: subnet ids by role ("container-apps", "private-endpoints");
 #   local.private_endpoint: { subnet_id = <the private-endpoints subnet id>, private_dns_zone_ids = <the zones by name> }.
 # Keep local.private_endpoint null or an object built from known values: whether it is null decides at plan time
-# whether the private endpoints exist. It stays null until the privatelink zones are added.
+# whether the private endpoints exist.
+
+# This spike's networks (SPEC section 3.1): the spoke (Logic App integration with NAT Gateway egress, private endpoints),
+# the simulated datacenter peered to it (the VPN/ExpressRoute stand-in), the unpeered partner network reached over the
+# Internet, the corp.local zone shared by the spoke and the datacenter, and the NSGs. Subnet roles here:
+# "logicapp-integration", "private-endpoints", "servers", "partner". local.private_endpoint stays null until a
+# service needs a private endpoint and its privatelink zone is added to the spoke.
 
 variable "deployer_ip" {
   description = "Public IPv4 address of the deployer (DEPLOYER_IP), without a CIDR suffix; allowed on the partner VM."
@@ -29,15 +33,17 @@ locals {
   network_tags       = merge(local.tags, { workload = "orchestrator-to-logic-apps" })
   corp_dns_zone_name = "corp.local"
 
+  spoke_vnet_name       = "vnet-${var.environment_name}-spoke"
+  onprem_sim_vnet_name  = "vnet-${var.environment_name}-onprem-sim"
   spoke_logicapp_prefix = "10.10.1.0/26"
   bastion_prefix        = "10.20.255.0/26"
 
   network = {
     subnet_ids = {
-      "container-apps"    = azurerm_subnet.logicapp_int.id
-      "private-endpoints" = azurerm_subnet.private_endpoints.id
-      "servers"           = azurerm_subnet.servers.id
-      "partner"           = azurerm_subnet.partner.id
+      "logicapp-integration" = module.network_spoke.subnet_ids["snet-logicapp-int"]
+      "private-endpoints"    = module.network_spoke.subnet_ids["snet-pe"]
+      "servers"              = module.network_onprem_sim.subnet_ids["snet-servers"]
+      "partner"              = module.network_partner.subnet_ids["snet-partner"]
     }
   }
   private_endpoint = null
@@ -51,89 +57,60 @@ locals {
   partner_allowed_sources = ["${azurerm_public_ip.nat.ip_address}/32", "${var.deployer_ip}/32"]
 }
 
-resource "azurerm_virtual_network" "spoke" {
-  name                = "vnet-${var.environment_name}-spoke"
-  address_space       = ["10.10.0.0/16"]
-  location            = var.location
+module "network_spoke" {
+  source              = "./modules/network"
+  name                = local.spoke_vnet_name
   resource_group_name = azurerm_resource_group.main.name
-  tags                = local.network_tags
-}
-
-resource "azurerm_virtual_network" "onprem_sim" {
-  name                = "vnet-${var.environment_name}-onprem-sim"
-  address_space       = ["10.20.0.0/16"]
   location            = var.location
-  resource_group_name = azurerm_resource_group.main.name
   tags                = local.network_tags
-}
-
-resource "azurerm_virtual_network" "partner" {
-  name                = "vnet-${var.environment_name}-partner"
-  address_space       = ["10.30.0.0/16"]
-  location            = var.location
-  resource_group_name = azurerm_resource_group.main.name
-  tags                = local.network_tags
-}
-
-resource "azurerm_subnet" "logicapp_int" {
-  name                 = "snet-logicapp-int"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.spoke.name
-  address_prefixes     = [local.spoke_logicapp_prefix]
-
-  delegation {
-    name = "logic-apps"
-
-    service_delegation {
-      name = "Microsoft.Web/serverFarms"
-      actions = [
-        "Microsoft.Network/virtualNetworks/subnets/action",
-      ]
-    }
+  address_space       = "10.10.0.0/16"
+  subnets = {
+    "snet-logicapp-int" = { address_prefix = local.spoke_logicapp_prefix, delegation = "Microsoft.Web/serverFarms" }
+    "snet-pe"           = { address_prefix = "10.10.2.0/27" }
   }
 }
 
-resource "azurerm_subnet" "private_endpoints" {
-  name                 = "snet-pe"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.spoke.name
-  address_prefixes     = ["10.10.2.0/27"]
+module "network_onprem_sim" {
+  source              = "./modules/network"
+  name                = local.onprem_sim_vnet_name
+  resource_group_name = azurerm_resource_group.main.name
+  location            = var.location
+  tags                = local.network_tags
+  address_space       = "10.20.0.0/16"
+  subnets = merge(
+    { "snet-servers" = { address_prefix = "10.20.1.0/24" } },
+    var.enable_bastion ? { "AzureBastionSubnet" = { address_prefix = local.bastion_prefix } } : {},
+  )
 }
 
-resource "azurerm_subnet" "servers" {
-  name                 = "snet-servers"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.onprem_sim.name
-  address_prefixes     = ["10.20.1.0/24"]
-}
-
-resource "azurerm_subnet" "bastion" {
-  count                = var.enable_bastion ? 1 : 0
-  name                 = "AzureBastionSubnet"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.onprem_sim.name
-  address_prefixes     = [local.bastion_prefix]
-}
-
-resource "azurerm_subnet" "partner" {
-  name                 = "snet-partner"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.partner.name
-  address_prefixes     = ["10.30.1.0/24"]
+module "network_partner" {
+  source              = "./modules/network"
+  name                = "vnet-${var.environment_name}-partner"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = var.location
+  tags                = local.network_tags
+  address_space       = "10.30.0.0/16"
+  subnets = {
+    "snet-partner" = { address_prefix = "10.30.1.0/24" }
+  }
 }
 
 resource "azurerm_virtual_network_peering" "spoke_to_onprem_sim" {
   name                      = "peer-spoke-to-onprem-sim"
   resource_group_name       = azurerm_resource_group.main.name
-  virtual_network_name      = azurerm_virtual_network.spoke.name
-  remote_virtual_network_id = azurerm_virtual_network.onprem_sim.id
+  virtual_network_name      = local.spoke_vnet_name
+  remote_virtual_network_id = module.network_onprem_sim.virtual_network_id
+  # The local network is named, not referenced: wait for it to exist.
+  depends_on = [module.network_spoke, module.network_onprem_sim]
 }
 
 resource "azurerm_virtual_network_peering" "onprem_sim_to_spoke" {
   name                      = "peer-onprem-sim-to-spoke"
   resource_group_name       = azurerm_resource_group.main.name
-  virtual_network_name      = azurerm_virtual_network.onprem_sim.name
-  remote_virtual_network_id = azurerm_virtual_network.spoke.id
+  virtual_network_name      = local.onprem_sim_vnet_name
+  remote_virtual_network_id = module.network_spoke.virtual_network_id
+  # The local network is named, not referenced: wait for it to exist.
+  depends_on = [module.network_spoke, module.network_onprem_sim]
 }
 
 resource "azurerm_public_ip" "nat" {
@@ -159,7 +136,7 @@ resource "azurerm_nat_gateway_public_ip_association" "logicapp" {
 }
 
 resource "azurerm_subnet_nat_gateway_association" "logicapp" {
-  subnet_id      = azurerm_subnet.logicapp_int.id
+  subnet_id      = local.network.subnet_ids["logicapp-integration"]
   nat_gateway_id = azurerm_nat_gateway.logicapp.id
 }
 
@@ -173,7 +150,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "spoke" {
   name                  = "link-spoke"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.corp.name
-  virtual_network_id    = azurerm_virtual_network.spoke.id
+  virtual_network_id    = module.network_spoke.virtual_network_id
   registration_enabled  = false
   tags                  = local.network_tags
 }
@@ -182,7 +159,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "onprem_sim" {
   name                  = "link-onprem-sim"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.corp.name
-  virtual_network_id    = azurerm_virtual_network.onprem_sim.id
+  virtual_network_id    = module.network_onprem_sim.virtual_network_id
   registration_enabled  = false
   tags                  = local.network_tags
 }
@@ -317,12 +294,12 @@ resource "azurerm_network_security_rule" "partner_deny_all" {
 }
 
 resource "azurerm_subnet_network_security_group_association" "servers" {
-  subnet_id                 = azurerm_subnet.servers.id
+  subnet_id                 = local.network.subnet_ids["servers"]
   network_security_group_id = azurerm_network_security_group.servers.id
 }
 
 resource "azurerm_subnet_network_security_group_association" "partner" {
-  subnet_id                 = azurerm_subnet.partner.id
+  subnet_id                 = local.network.subnet_ids["partner"]
   network_security_group_id = azurerm_network_security_group.partner.id
 }
 

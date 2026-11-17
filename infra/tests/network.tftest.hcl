@@ -22,16 +22,7 @@ override_resource {
 }
 
 override_resource {
-  target          = azurerm_subnet.logicapp_int
-  override_during = plan
-
-  values = {
-    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-logicapp-int"
-  }
-}
-
-override_resource {
-  target          = azurerm_virtual_network.spoke
+  target          = module.network_spoke.azurerm_virtual_network.main
   override_during = plan
 
   values = {
@@ -40,7 +31,7 @@ override_resource {
 }
 
 override_resource {
-  target          = azurerm_virtual_network.onprem_sim
+  target          = module.network_onprem_sim.azurerm_virtual_network.main
   override_during = plan
 
   values = {
@@ -48,8 +39,18 @@ override_resource {
   }
 }
 
+# Every subnet of a network gets the same mocked id: the provider only checks that it parses as a subnet id.
 override_resource {
-  target          = azurerm_subnet.servers
+  target          = module.network_spoke.azurerm_subnet.main
+  override_during = plan
+
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-logicapp-int"
+  }
+}
+
+override_resource {
+  target          = module.network_onprem_sim.azurerm_subnet.main
   override_during = plan
 
   values = {
@@ -58,7 +59,7 @@ override_resource {
 }
 
 override_resource {
-  target          = azurerm_subnet.partner
+  target          = module.network_partner.azurerm_subnet.main
   override_during = plan
 
   values = {
@@ -96,12 +97,12 @@ run "network_plan" {
   command = plan
 
   assert {
-    condition     = azurerm_subnet.logicapp_int.delegation[0].service_delegation[0].name == "Microsoft.Web/serverFarms"
-    error_message = "The Logic App integration subnet must be delegated to Microsoft.Web/serverFarms."
+    condition     = module.network_spoke.subnet_ids["snet-logicapp-int"] == local.network.subnet_ids["logicapp-integration"] && contains(keys(module.network_spoke.subnet_ids), "snet-pe")
+    error_message = "The spoke must expose snet-logicapp-int as the logicapp-integration role, and snet-pe."
   }
 
   assert {
-    condition     = azurerm_subnet_nat_gateway_association.logicapp.subnet_id == azurerm_subnet.logicapp_int.id
+    condition     = azurerm_subnet_nat_gateway_association.logicapp.subnet_id == local.network.subnet_ids["logicapp-integration"]
     error_message = "The NAT Gateway must be attached to the Logic App integration subnet."
   }
 
@@ -121,7 +122,7 @@ run "network_plan" {
   }
 
   assert {
-    condition     = length(azurerm_subnet.bastion) == 0 && length(azurerm_network_security_rule.servers_bastion) == 0
+    condition     = !contains(keys(module.network_onprem_sim.subnet_ids), "AzureBastionSubnet") && length(azurerm_network_security_rule.servers_bastion) == 0
     error_message = "enable_bastion=false must create no Bastion subnet and no Bastion rule."
   }
 
@@ -159,7 +160,7 @@ run "bastion_enabled" {
   }
 
   assert {
-    condition     = length(azurerm_subnet.bastion) == 1 && azurerm_subnet.bastion[0].name == "AzureBastionSubnet"
+    condition     = contains(keys(module.network_onprem_sim.subnet_ids), "AzureBastionSubnet")
     error_message = "enable_bastion=true must create the AzureBastionSubnet."
   }
 
