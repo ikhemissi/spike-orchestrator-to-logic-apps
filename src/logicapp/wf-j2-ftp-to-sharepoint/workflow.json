@@ -269,7 +269,7 @@
                           "actions": {
                             "Get_sharepoint_metadata": {
                               "type": "Http",
-                              "description": "# VERIFY: Confirm the HTTP response exposes the drive item size at body.size.",
+                              "description": "# VERIFY: Confirm the HTTP response exposes drive item size at body.size and statusCode on failures.",
                               "inputs": {
                                 "method": "GET",
                                 "uri": "@{concat('https://graph.microsoft.com/v1.0/sites/', parameters('j2SharePointSiteId'), '/drive/root:/', parameters('j2Folder'), '/', uriComponent(items('For_each_file')?['name']))}",
@@ -328,61 +328,122 @@
                               },
                               "else": {
                                 "actions": {
-                                  "Upload_sharepoint_file": {
-                                    "type": "Http",
-                                    "inputs": {
-                                      "method": "PUT",
-                                      "uri": "@{concat('https://graph.microsoft.com/v1.0/sites/', parameters('j2SharePointSiteId'), '/drive/root:/', parameters('j2Folder'), '/', uriComponent(items('For_each_file')?['name']), ':/content')}",
-                                      "headers": {
-                                        "Content-Type": "application/octet-stream"
+                                  "Sharepoint_lookup_allows_upload": {
+                                    "type": "If",
+                                    "expression": {
+                                      "or": [
+                                        {
+                                          "equals": [
+                                            "@actions('Get_sharepoint_metadata')?['status']",
+                                            "Succeeded"
+                                          ]
+                                        },
+                                        {
+                                          "equals": [
+                                            "@outputs('Get_sharepoint_metadata')?['statusCode']",
+                                            404
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "actions": {
+                                      "Upload_sharepoint_file": {
+                                        "type": "Http",
+                                        "inputs": {
+                                          "method": "PUT",
+                                          "uri": "@{concat('https://graph.microsoft.com/v1.0/sites/', parameters('j2SharePointSiteId'), '/drive/root:/', parameters('j2Folder'), '/', uriComponent(items('For_each_file')?['name']), ':/content')}",
+                                          "headers": {
+                                            "Content-Type": "application/octet-stream"
+                                          },
+                                          "body": "@body('Get_source_content')",
+                                          "authentication": {
+                                            "type": "ManagedServiceIdentity",
+                                            "audience": "https://graph.microsoft.com"
+                                          }
+                                        },
+                                        "runAfter": {},
+                                        "retryPolicy": {
+                                          "type": "exponential",
+                                          "count": 4,
+                                          "interval": "PT15S",
+                                          "maximumInterval": "PT5M"
+                                        },
+                                        "runtimeConfiguration": {
+                                          "secureData": {
+                                            "properties": [
+                                              "inputs"
+                                            ]
+                                          }
+                                        }
                                       },
-                                      "body": "@body('Get_source_content')",
-                                      "authentication": {
-                                        "type": "ManagedServiceIdentity",
-                                        "audience": "https://graph.microsoft.com"
+                                      "Count_sharepoint_delivered": {
+                                        "type": "IncrementVariable",
+                                        "inputs": {
+                                          "name": "filesDelivered",
+                                          "value": 1
+                                        },
+                                        "runAfter": {
+                                          "Upload_sharepoint_file": [
+                                            "Succeeded"
+                                          ]
+                                        }
+                                      },
+                                      "Record_sharepoint_delivered": {
+                                        "type": "AppendToArrayVariable",
+                                        "inputs": {
+                                          "name": "files",
+                                          "value": {
+                                            "name": "@items('For_each_file')?['name']",
+                                            "sizeBytes": "@items('For_each_file')?['size']",
+                                            "result": "delivered"
+                                          }
+                                        },
+                                        "runAfter": {
+                                          "Count_sharepoint_delivered": [
+                                            "Succeeded"
+                                          ]
+                                        }
                                       }
                                     },
-                                    "runAfter": {},
-                                    "retryPolicy": {
-                                      "type": "exponential",
-                                      "count": 4,
-                                      "interval": "PT15S",
-                                      "maximumInterval": "PT5M"
-                                    },
-                                    "runtimeConfiguration": {
-                                      "secureData": {
-                                        "properties": [
-                                          "inputs"
-                                        ]
+                                    "else": {
+                                      "actions": {
+                                        "Disable_archive_after_lookup_failure": {
+                                          "type": "SetVariable",
+                                          "inputs": {
+                                            "name": "archiveAllowed",
+                                            "value": false
+                                          }
+                                        },
+                                        "Count_lookup_failure": {
+                                          "type": "IncrementVariable",
+                                          "inputs": {
+                                            "name": "filesFailed",
+                                            "value": 1
+                                          },
+                                          "runAfter": {
+                                            "Disable_archive_after_lookup_failure": [
+                                              "Succeeded"
+                                            ]
+                                          }
+                                        },
+                                        "Record_lookup_failure": {
+                                          "type": "AppendToArrayVariable",
+                                          "inputs": {
+                                            "name": "files",
+                                            "value": {
+                                              "name": "@items('For_each_file')?['name']",
+                                              "sizeBytes": "@items('For_each_file')?['size']",
+                                              "result": "sharepoint-lookup-failed",
+                                              "error": "@{concat('Graph metadata lookup failed with HTTP status ', string(outputs('Get_sharepoint_metadata')?['statusCode']))}"
+                                            }
+                                          },
+                                          "runAfter": {
+                                            "Count_lookup_failure": [
+                                              "Succeeded"
+                                            ]
+                                          }
+                                        }
                                       }
-                                    }
-                                  },
-                                  "Count_sharepoint_delivered": {
-                                    "type": "IncrementVariable",
-                                    "inputs": {
-                                      "name": "filesDelivered",
-                                      "value": 1
-                                    },
-                                    "runAfter": {
-                                      "Upload_sharepoint_file": [
-                                        "Succeeded"
-                                      ]
-                                    }
-                                  },
-                                  "Record_sharepoint_delivered": {
-                                    "type": "AppendToArrayVariable",
-                                    "inputs": {
-                                      "name": "files",
-                                      "value": {
-                                        "name": "@items('For_each_file')?['name']",
-                                        "sizeBytes": "@items('For_each_file')?['size']",
-                                        "result": "delivered"
-                                      }
-                                    },
-                                    "runAfter": {
-                                      "Count_sharepoint_delivered": [
-                                        "Succeeded"
-                                      ]
                                     }
                                   }
                                 }
