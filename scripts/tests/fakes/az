@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+
+
+args = sys.argv[1:]
+state_path = os.environ.get("AZ_TEST_STATE")
+log_path = os.environ.get("AZ_TEST_LOG")
+state = {
+    "partner_rule": {
+        "name": "partner-allow",
+        "sourceAddressPrefixes": ["198.51.100.10", "203.0.113.8"],
+        "description": "partner allow list",
+    },
+    "servers_rules": [],
+    "secret_value": "test-secret-value",
+    "secret_restore_version": None,
+    "secret_version": "version-a",
+    "secret_versions": {"version-a": "test-secret-value"},
+    "workers_running": {"worker-01": True},
+    "worker_tags": {},
+    "worker_credential": "svc-automation",
+    "worker_group_tags": {},
+}
+if state_path and os.path.exists(state_path):
+    with open(state_path, encoding="utf-8") as state_file:
+        state.update(json.load(state_file))
+
+if log_path:
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(args) + "\n")
+
+
+def option(name, default=None):
+    try:
+        return args[args.index(name) + 1]
+    except (ValueError, IndexError):
+        return default
+
+
+def save_state():
+    if state_path:
+        with open(state_path, "w", encoding="utf-8") as state_file:
+            json.dump(state, state_file)
+
+
+def emit(value):
+    print(value)
+
+
+if args[:4] == ["network", "nsg", "rule", "list"]:
+    if option("--nsg-name") == "partner-nsg":
+        emit(json.dumps([state["partner_rule"]]))
+    else:
+        emit(json.dumps(state["servers_rules"]))
+elif args[:4] == ["network", "nsg", "rule", "update"]:
+    name = option("--name")
+    start = args.index("--source-address-prefixes") + 1
+    end = args.index("--description")
+    state["partner_rule"] = {
+        "name": name,
+        "sourceAddressPrefixes": args[start:end],
+        "description": option("--description", ""),
+    }
+    save_state()
+elif args[:4] == ["network", "nsg", "rule", "create"]:
+    state["servers_rules"].append(
+        {
+            "name": option("--name"),
+            "priority": int(option("--priority")),
+            "source": option("--source-address-prefixes"),
+            "destination": option("--destination-address-prefixes"),
+            "ports": option("--destination-port-ranges"),
+        }
+    )
+    save_state()
+elif args[:4] == ["network", "nsg", "rule", "delete"]:
+    state["servers_rules"] = [
+        rule for rule in state["servers_rules"] if rule["name"] != option("--name")
+    ]
+    save_state()
+elif args[:4] == ["network", "vnet", "subnet", "show"]:
+    emit("10.10.0.0/27")
+elif args[:2] == ["logicapp", "show"]:
+    emit("/subscriptions/test/resourceGroups/test/providers/Microsoft.Network/virtualNetworks/vnet/subnets/logicapp")
+elif args[:3] == ["keyvault", "secret", "show"]:
+    query = option("--query")
+    if query == "id":
+        emit(f"/secrets/ftp-partner-a-password/{state['secret_version']}")
+    elif query == "tags.fault-restore-version":
+        emit(state["secret_restore_version"] or "None")
+    elif option("--version"):
+        emit(state["secret_versions"].get(option("--version"), ""))
+    elif query == "value":
+        emit(state["secret_value"])
+    else:
+        emit("")
+elif args[:3] == ["keyvault", "secret", "set"]:
+    value_file = option("--file")
+    if value_file:
+        with open(value_file, encoding="utf-8") as secret_file:
+            state["secret_value"] = secret_file.read()
+    else:
+        state["secret_value"] = option("--value", "")
+    state["secret_restore_version"] = None
+    tags = option("--tags", "")
+    if tags.startswith("fault-restore-version="):
+        state["secret_restore_version"] = tags.split("=", 1)[1]
+    state["secret_version"] = f"version-{len(state['secret_versions']) + 1}"
+    state["secret_versions"][state["secret_version"]] = state["secret_value"]
+    save_state()
+elif args[:2] == ["vm", "show"]:
+    name = option("--name", "")
+    query = option("--query")
+    if query == "id":
+        emit(f"/subscriptions/test/resourceGroups/test/providers/Microsoft.Compute/virtualMachines/{name}")
+    elif query == "tags.fault-was-running":
+        emit("true" if state["worker_tags"].get(name) else "None")
+    else:
+        emit(json.dumps({"id": f"/vm/{name}", "tags": {"fault-was-running": "true"} if state["worker_tags"].get(name) else {}}))
+elif args[:2] == ["vm", "list-ip-addresses"]:
+    emit("10.20.0.4")
+elif args[:2] == ["vm", "get-instance-view"]:
+    name = option("--name", "")
+    emit("PowerState/running" if state["workers_running"].get(name) else "PowerState/deallocated")
+elif args[:2] == ["vm", "stop"]:
+    state["workers_running"][option("--name", "")] = False
+    save_state()
+elif args[:2] == ["vm", "start"]:
+    state["workers_running"][option("--name", "")] = True
+    save_state()
+elif args[:2] == ["tag", "update"]:
+    name = option("--resource-id", "").rsplit("/", 1)[-1]
+    if option("--operation") == "Merge":
+        state["worker_tags"][name] = True
+    else:
+        state["worker_tags"].pop(name, None)
+    save_state()
+elif args[:2] == ["rest", "--method"] and option("--method") == "get":
+    emit(json.dumps({
+        "properties": {"credential": {"name": state["worker_credential"]}},
+        "tags": state["worker_group_tags"],
+    }))
+elif args[:2] == ["rest", "--method"] and option("--method") == "patch":
+    body = json.loads(option("--body", "{}"))
+    state["worker_group_tags"] = body.get("tags", {})
+    credential = body.get("properties", {}).get("credential")
+    state["worker_credential"] = credential.get("name") if credential else None
+    save_state()
+elif option("--output") == "none":
+    pass
+else:
+    emit("")
