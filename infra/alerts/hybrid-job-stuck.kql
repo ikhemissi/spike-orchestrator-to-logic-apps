@@ -1,0 +1,14 @@
+// VERIFY: AzureDiagnostics JobLogs status fields and LogicAppWorkflowRuntime tracked-property fields.
+let StuckAutomationJobs =
+    AzureDiagnostics
+    | where Category == "JobLogs"
+    | where TimeGenerated <= ago(10m)
+    | where ResultType == "Queued"
+    | count;
+let TimedOutWorkflowRuns =
+    LogicAppWorkflowRuntime
+    | where TimeGenerated >= ago(15m)
+    | where WorkflowName == "wf-j3-convert-onprem"
+    | where tostring(TrackedProperties.errorCode) == "HYBRID_JOB_TIMEOUT"
+    | count;
+print StuckOrTimedOutJobs = toscalar(StuckAutomationJobs) + toscalar(TimedOutWorkflowRuns)

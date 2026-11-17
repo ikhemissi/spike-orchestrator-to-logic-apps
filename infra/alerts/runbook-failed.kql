@@ -1,0 +1,5 @@
+// VERIFY: AzureDiagnostics table and Category and ResultType columns for Automation JobLogs.
+AzureDiagnostics
+| where TimeGenerated >= ago(5m)
+| where Category == "JobLogs"
+| summarize FailedJobs = countif(ResultType in ("Failed", "Suspended", "Stopped"))

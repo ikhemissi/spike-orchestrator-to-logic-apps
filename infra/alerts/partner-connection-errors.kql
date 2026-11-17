@@ -1,0 +1,5 @@
+// VERIFY: LogicAppWorkflowRuntime table and ActionName, Status, and TimeGenerated columns.
+LogicAppWorkflowRuntime
+| where TimeGenerated >= ago(15m)
+| where ActionName has_any ("FTP", "SFTP")
+| summarize FailedActions = countif(Status == "Failed")
