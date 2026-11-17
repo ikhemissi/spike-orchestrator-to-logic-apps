@@ -11,6 +11,8 @@ Every choice, simplification against production and fallback, with its date. VER
 | D5 | 2026-11-17 | No policy assignment forcing jobs onto hybrid workers | No built-in definition found ([01](experiments/01-verify-items.md) V2); a custom definition is out of scope | A custom policy, or the Automation account used only with hybrid worker groups |
 | D6 | 2026-11-17 | The Logic App's runtime storage account keeps shared keys (the runtime's content share uses the account key); workflows reach Azure only with the managed identity, and the data account has shared keys disabled | Workflow Standard plans mount their content share with the account key | Same, plus private endpoints for the runtime storage (`enable_private_storage`) |
 | D7 | 2026-11-17 | The Logic App's public network access stays enabled, so that `azd`/zip deployment works from a laptop | Simplest deployment path for the spike | Private inbound access, deployment from a runner inside the network |
+| D8 | 2026-11-17 | The VMs' setup scripts are downloaded from this repository at a git ref (`VM_SCRIPT_SOURCE_REF`, default `main`) | Simplest delivery for a public spike repository; a script change takes effect once pushed | Scripts from the organisation's software distribution or a private artifact store |
+| D9 | 2026-11-17 | The simulated partner listens on non-standard ports (FTP control `PARTNER_FTP_PORT`, default 2121; SFTP `PARTNER_SFTP_PORT`, default 2222) | In the test environment, network rules that open well-known management ports to Internet addresses were removed automatically within the hour, even when restricted to two source addresses | Real partners use their own ports; the connections take the port as a setting |
 
 ## VERIFY items
 

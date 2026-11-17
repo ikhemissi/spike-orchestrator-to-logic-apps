@@ -1,0 +1,529 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": "@parameters('j1RecurrenceMinutes')",
+          "timeZone": "Romance Standard Time"
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "runs": 1
+          }
+        }
+      }
+    },
+    "actions": {
+      "Init_CorrelationId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "correlationId",
+              "type": "string",
+              "value": "@{guid()}"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Init_StartedAt": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "startedAt",
+              "type": "string",
+              "value": "@{utcNow()}"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_CorrelationId": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_Files": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "files",
+              "type": "array",
+              "value": []
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_StartedAt": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesDelivered": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesDelivered",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_Files": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesSkipped": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesSkipped",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesDelivered": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Try": {
+        "type": "Scope",
+        "actions": {
+          "List_source_files": {
+            "type": "ServiceProvider",
+            "inputs": {
+              "parameters": {
+                "folderPath": "@parameters('j1SourceFolder')"
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "ftpPartnerA",
+                "operationId": "listFilesInFolder",
+                "serviceProviderId": "/serviceProviders/Ftp"
+              }
+            },
+            "runAfter": {},
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 4,
+              "interval": "PT15S",
+              "maximumInterval": "PT5M"
+            }
+          },
+          "Filter_csv_files": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('List_source_files')",
+              "where": "@and(not(item()?['isFolder']), endsWith(toLower(item()?['name']), '.csv'), not(startsWith(item()?['name'], '~')), not(endsWith(toLower(item()?['name']), '.partial')))"
+            },
+            "runAfter": {
+              "List_source_files": [
+                "Succeeded"
+              ]
+            }
+          },
+          "For_each_file": {
+            "type": "Foreach",
+            "foreach": "@body('Filter_csv_files')",
+            "actions": {
+              "Get_source_content": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "filePath": "@items('For_each_file')?['path']"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "ftpPartnerA",
+                    "operationId": "getFtpFileContent",
+                    "serviceProviderId": "/serviceProviders/Ftp"
+                  }
+                },
+                "runAfter": {},
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "outputs"
+                    ]
+                  }
+                }
+              },
+              "Get_target_metadata": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "fileOrFolderPath": "@{parameters('j1TargetFolder')}/@{items('For_each_file')?['name']}"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "sftpPartnerB",
+                    "operationId": "getMetadata",
+                    "serviceProviderId": "/serviceProviders/Sftp"
+                  }
+                },
+                "runAfter": {
+                  "Get_source_content": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "Already_delivered": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@actions('Get_target_metadata')?['status']",
+                        "Succeeded"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@body('Get_target_metadata')?['fileSize']",
+                        "@items('For_each_file')?['size']"
+                      ]
+                    }
+                  ]
+                },
+                "actions": {
+                  "Count_skipped": {
+                    "type": "IncrementVariable",
+                    "inputs": {
+                      "name": "filesSkipped",
+                      "value": 1
+                    }
+                  },
+                  "Record_skipped": {
+                    "type": "AppendToArrayVariable",
+                    "inputs": {
+                      "name": "files",
+                      "value": {
+                        "name": "@items('For_each_file')?['name']",
+                        "sizeBytes": "@items('For_each_file')?['size']",
+                        "result": "skipped-duplicate"
+                      }
+                    },
+                    "runAfter": {
+                      "Count_skipped": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {
+                    "Upload_partial": {
+                      "type": "ServiceProvider",
+                      "inputs": {
+                        "parameters": {
+                          "filePath": "@{parameters('j1TargetFolder')}/@{items('For_each_file')?['name']}.partial",
+                          "content": "@body('Get_source_content')",
+                          "overWriteFileIfExists": true
+                        },
+                        "serviceProviderConfiguration": {
+                          "connectionName": "sftpPartnerB",
+                          "operationId": "uploadFileContent",
+                          "serviceProviderId": "/serviceProviders/Sftp"
+                        }
+                      },
+                      "runAfter": {},
+                      "retryPolicy": {
+                        "type": "exponential",
+                        "count": 4,
+                        "interval": "PT15S",
+                        "maximumInterval": "PT5M"
+                      },
+                      "runtimeConfiguration": {
+                        "secureData": {
+                          "properties": [
+                            "inputs"
+                          ]
+                        }
+                      }
+                    },
+                    "Rename_to_final": {
+                      "type": "ServiceProvider",
+                      "inputs": {
+                        "parameters": {
+                          "filePath": "@{parameters('j1TargetFolder')}/@{items('For_each_file')?['name']}.partial",
+                          "newFileName": "@items('For_each_file')?['name']"
+                        },
+                        "serviceProviderConfiguration": {
+                          "connectionName": "sftpPartnerB",
+                          "operationId": "renameFile",
+                          "serviceProviderId": "/serviceProviders/Sftp"
+                        }
+                      },
+                      "runAfter": {
+                        "Upload_partial": [
+                          "Succeeded"
+                        ]
+                      },
+                      "retryPolicy": {
+                        "type": "exponential",
+                        "count": 4,
+                        "interval": "PT15S",
+                        "maximumInterval": "PT5M"
+                      }
+                    },
+                    "Count_delivered": {
+                      "type": "IncrementVariable",
+                      "inputs": {
+                        "name": "filesDelivered",
+                        "value": 1
+                      },
+                      "runAfter": {
+                        "Rename_to_final": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Record_delivered": {
+                      "type": "AppendToArrayVariable",
+                      "inputs": {
+                        "name": "files",
+                        "value": {
+                          "name": "@items('For_each_file')?['name']",
+                          "sizeBytes": "@items('For_each_file')?['size']",
+                          "result": "delivered"
+                        }
+                      },
+                      "runAfter": {
+                        "Count_delivered": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_target_metadata": [
+                    "Succeeded",
+                    "Failed"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{variables('correlationId')}",
+                  "jobName": "J1",
+                  "pattern": "P0",
+                  "fileName": "@{items('For_each_file')?['name']}",
+                  "partner": "partner-b"
+                }
+              },
+              "Archive_source": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "filePath": "@{parameters('j1ArchiveFolder')}/@{formatDateTime(utcNow(), 'yyyyMMdd-HHmmss')}_@{items('For_each_file')?['name']}",
+                    "fileContent": "@body('Get_source_content')"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "ftpPartnerA",
+                    "operationId": "createFile",
+                    "serviceProviderId": "/serviceProviders/Ftp"
+                  }
+                },
+                "runAfter": {
+                  "Already_delivered": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs"
+                    ]
+                  }
+                }
+              },
+              "Delete_source": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "filePath": "@items('For_each_file')?['path']",
+                    "skipIfFileNotPresent": true
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "ftpPartnerA",
+                    "operationId": "deleteFtpFile",
+                    "serviceProviderId": "/serviceProviders/Ftp"
+                  }
+                },
+                "runAfter": {
+                  "Archive_source": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                }
+              }
+            },
+            "runAfter": {
+              "Filter_csv_files": [
+                "Succeeded"
+              ]
+            },
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 1
+              }
+            }
+          },
+          "Compose_summary": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "job": "J1",
+              "filesProcessed": "@variables('filesDelivered')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "files": "@variables('files')"
+            },
+            "runAfter": {
+              "For_each_file": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{variables('correlationId')}",
+              "jobName": "J1",
+              "pattern": "P0",
+              "outcome": "Succeeded"
+            }
+          }
+        },
+        "runAfter": {
+          "Init_FilesSkipped": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Catch": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "actions": {
+          "Filter_failed_actions": {
+            "type": "Query",
+            "inputs": {
+              "from": "@result('Scope_Try')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "Report_failure": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J1",
+                "pattern": "P0",
+                "outcome": "Failed",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": "@variables('filesDelivered')",
+                "filesSkipped": "@variables('filesSkipped')",
+                "filesFailed": 1,
+                "errors": "@body('Filter_failed_actions')"
+              }
+            },
+            "runAfter": {
+              "Filter_failed_actions": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Terminate_failed": {
+            "type": "Terminate",
+            "runAfter": {
+              "Report_failure": [
+                "Succeeded",
+                "Failed"
+              ]
+            },
+            "inputs": {
+              "runStatus": "Failed",
+              "runError": {
+                "code": "J1_FAILED",
+                "message": "@{first(body('Filter_failed_actions'))?['name']}: @{first(body('Filter_failed_actions'))?['error']?['message']}"
+              }
+            }
+          }
+        }
+      },
+      "Scope_Finally": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "Report_success": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J1",
+                "pattern": "P0",
+                "outcome": "Succeeded",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": "@variables('filesDelivered')",
+                "filesSkipped": "@variables('filesSkipped')",
+                "filesFailed": 0,
+                "errors": [],
+                "details": "@outputs('Compose_summary')"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {},
+    "parameters": {}
+  },
+  "kind": "Stateful"
+}

@@ -13,6 +13,7 @@ fi
 
 ENABLE_FTPS="${ENABLE_FTPS:-false}"
 SSH_PORT="${SSH_PORT:-22}"
+FTP_PORT="${FTP_PORT:-21}"
 
 if [[ ! "${PASV_ADDRESS}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
   echo "PASV_ADDRESS must be an IPv4 address." >&2
@@ -26,10 +27,15 @@ if [[ "${PARTNER_B_PUBLIC_KEY}" == *$'\n'* ]]; then
   echo "PARTNER_B_PUBLIC_KEY must contain one public key line." >&2
   exit 1
 fi
-if [[ ! "${SSH_PORT}" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
-  echo "SSH_PORT must be between 1 and 65535." >&2
-  exit 1
-fi
+require_port() {
+  local name="$1" value="$2"
+  if [[ ! "${value}" =~ ^[0-9]+$ ]] || (( value < 1 || value > 65535 )); then
+    echo "${name} must be between 1 and 65535." >&2
+    exit 1
+  fi
+}
+require_port SSH_PORT "${SSH_PORT}"
+require_port FTP_PORT "${FTP_PORT}"
 if [[ "${ENABLE_FTPS}" != "true" && "${ENABLE_FTPS}" != "false" ]]; then
   echo "ENABLE_FTPS must be true or false." >&2
   exit 1
@@ -98,6 +104,7 @@ vsftpd_config=/etc/vsftpd.conf
 cat >"${vsftpd_config}" <<EOF
 listen=YES
 listen_ipv6=NO
+listen_port=${FTP_PORT}
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES

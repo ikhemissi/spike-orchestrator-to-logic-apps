@@ -1,0 +1,18 @@
+{
+  "j1RecurrenceMinutes": {
+    "type": "Int",
+    "value": 15
+  },
+  "j1SourceFolder": {
+    "type": "String",
+    "value": "/outbound/j1"
+  },
+  "j1TargetFolder": {
+    "type": "String",
+    "value": "/inbound"
+  },
+  "j1ArchiveFolder": {
+    "type": "String",
+    "value": "/outbound/archive"
+  }
+}

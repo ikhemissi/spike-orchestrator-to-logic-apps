@@ -13,6 +13,55 @@
       "serviceProvider": {
         "id": "/serviceProviders/AzureBlob"
       }
+    },
+    "ftpPartnerA": {
+      "displayName": "ftpPartnerA",
+      "parameterValues": {
+        "serverAddress": "@appsetting('FTP_PARTNER_A_HOST')",
+        "username": "@appsetting('FTP_PARTNER_A_USERNAME')",
+        "password": "@appsetting('FTP_PARTNER_A_PASSWORD')",
+        "portNumber": "@appsetting('FTP_PARTNER_A_PORT')",
+        "enableSsl": false,
+        "enableBinaryMode": true
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/Ftp"
+      }
+    },
+    "sftpPartnerB": {
+      "displayName": "sftpPartnerB",
+      "parameterValues": {
+        "sshHostAddress": "@appsetting('SFTP_PARTNER_B_HOST')",
+        "username": "@appsetting('SFTP_PARTNER_B_USERNAME')",
+        "sshPrivateKey": "@appsetting('SFTP_PARTNER_B_PRIVATE_KEY')",
+        "portNumber": "@appsetting('SFTP_PARTNER_B_PORT')"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/Sftp"
+      }
+    },
+    "fileSystemNas": {
+      "displayName": "fileSystemNas",
+      "parameterValues": {
+        "rootFolder": "@appsetting('NAS_ROOT_FOLDER')",
+        "username": "@appsetting('NAS_USERNAME')",
+        "password": "@appsetting('NAS_PASSWORD')"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/FileSystem"
+      }
+    },
+    "azureAutomation": {
+      "displayName": "azureAutomation",
+      "parameterValues": {
+        "authProvider": {
+          "Type": "ManagedServiceIdentity",
+          "Identity": "@appsetting('LOGICAPP_IDENTITY_RESOURCE_ID')"
+        }
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/azureAutomation"
+      }
     }
   },
   "managedApiConnections": {}
