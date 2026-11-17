@@ -1,4 +1,4 @@
-# Install the worker prerequisites and prepare its local run-as account and GnuPG keyring.
+# Install the worker prerequisites and the worker-only CSV conversion tool.
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '', Justification = 'Custom Script Extension supplies the password through protected settings.')]
 [CmdletBinding()]
 param(
@@ -6,25 +6,16 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$SvcAzAutoPassword,
 
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$GpgPublicKey,
-
     [string]$SvcAzAutoAccountName = 'svc-azauto',
 
     [string]$PowerShellVersion = '7.4.13',
 
     [string]$PowerShellMsiUrl = 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.13/PowerShell-7.4.13-win-x64.msi', # VERIFY: confirm the current PowerShell 7.4 patch release URL.
 
-    [string]$Gpg4winInstallerUrl = 'https://files.gpg4win.org/gpg4win-4.4.1.exe', # VERIFY: confirm the current Gpg4win release URL.
+    [ValidateNotNullOrEmpty()]
+    [string]$ToolSourcePath = '.\Convert-Extract.ps1',
 
-    [string]$PowerShellExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe',
-
-    [string]$GpgExecutablePath = 'C:\Program Files (x86)\GnuPG\bin\gpg.exe', # VERIFY: confirm the install path for the selected Gpg4win release.
-
-    [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto'),
-
-    [string]$GpgConfigPath = (Join-Path $env:ProgramData 'OrchestratorSpike\gpg.json')
+    [string]$PowerShellExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe'
 )
 
 function ConvertTo-WorkerSecurePassword {
@@ -88,7 +79,7 @@ function Install-VerifiedPackage {
         [uri]$Uri,
 
         [Parameter(Mandatory = $true)]
-        [ValidateSet('.msi', '.exe')]
+        [ValidateSet('.msi')]
         [string]$Extension,
 
         [Parameter(Mandatory = $true)]
@@ -106,15 +97,8 @@ function Install-VerifiedPackage {
             throw "The downloaded package from '$Uri' does not have a valid Authenticode signature."
         }
 
-        $process = Start-Process -FilePath $(
-            if ($Extension -eq '.msi') { 'msiexec.exe' } else { $packagePath }
-        ) -ArgumentList $(
-            if ($Extension -eq '.msi') {
-                @('/i', "`"$packagePath`"") + $InstallerArguments
-            }
-            else {
-                $InstallerArguments
-            }
+        $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList (
+            @('/i', "`"$packagePath`"") + $InstallerArguments
         ) -Wait -PassThru -NoNewWindow
 
         if ($process.ExitCode -notin @(0, 3010)) {
@@ -127,60 +111,28 @@ function Install-VerifiedPackage {
     }
 }
 
-function Install-WorkerPrerequisite {
+function Install-WorkerPowerShell {
     [CmdletBinding()]
     param(
         [string]$PowerShellVersion,
         [string]$PowerShellMsiUrl,
-        [string]$Gpg4winInstallerUrl,
-        [string]$PowerShellExecutablePath,
-        [string]$GpgExecutablePath
+        [string]$PowerShellExecutablePath
     )
 
-    $installedPowerShellVersion = Get-InstalledProductVersion -ExecutablePath $PowerShellExecutablePath
-    if (-not $installedPowerShellVersion -or
-        -not $installedPowerShellVersion.StartsWith($PowerShellVersion, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $installedVersion = Get-InstalledProductVersion -ExecutablePath $PowerShellExecutablePath
+    if (-not $installedVersion -or
+        -not $installedVersion.StartsWith($PowerShellVersion, [System.StringComparison]::OrdinalIgnoreCase)) {
         Install-VerifiedPackage -Uri $PowerShellMsiUrl -Extension '.msi' -InstallerArguments @('/quiet', '/norestart', 'ADD_PATH=1')
     }
 
-    if (-not (Get-InstalledProductVersion -ExecutablePath $GpgExecutablePath)) {
-        # VERIFY: confirm /S is the silent-install switch for the selected Gpg4win release.
-        Install-VerifiedPackage -Uri $Gpg4winInstallerUrl -Extension '.exe' -InstallerArguments @('/S')
-    }
-
-    $finalPowerShellVersion = Get-InstalledProductVersion -ExecutablePath $PowerShellExecutablePath
-    if (-not $finalPowerShellVersion -or
-        -not $finalPowerShellVersion.StartsWith($PowerShellVersion, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $finalVersion = Get-InstalledProductVersion -ExecutablePath $PowerShellExecutablePath
+    if (-not $finalVersion -or
+        -not $finalVersion.StartsWith($PowerShellVersion, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "PowerShell $PowerShellVersion was not found at the configured executable path after installation."
     }
-
-    if (-not (Get-InstalledProductVersion -ExecutablePath $GpgExecutablePath)) {
-        throw 'GnuPG was not found at the configured executable path after installation.'
-    }
 }
 
-function Get-WorkerAccessRule {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Security.Principal.IdentityReference]$Identity,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Rights
-    )
-
-    $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
-        [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
-    return [System.Security.AccessControl.FileSystemAccessRule]::new(
-        $Identity,
-        [System.Security.AccessControl.FileSystemRights]$Rights,
-        $inheritanceFlags,
-        [System.Security.AccessControl.PropagationFlags]::None,
-        [System.Security.AccessControl.AccessControlType]::Allow
-    )
-}
-
-function Get-WorkerGpgHomePermissionPlan {
+function Get-WorkerToolPermissionPlan {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -192,25 +144,91 @@ function Get-WorkerGpgHomePermissionPlan {
 
     return @(
         [pscustomobject]@{
-            IdentityName = 'S-1-5-32-544'
-            FileSystemRights = 'FullControl'
-        },
-        [pscustomobject]@{
-            IdentityName = 'S-1-5-18'
+            IdentityName = 'BUILTIN\Administrators'
             FileSystemRights = 'FullControl'
         },
         [pscustomobject]@{
             IdentityName = "$ComputerName\$AccountName"
-            FileSystemRights = 'Modify'
+            FileSystemRights = 'ReadAndExecute'
         }
     )
 }
 
-function Set-WorkerGpgHomePermission {
+function Get-WorkerToolAccessRule {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Security.Principal.IdentityReference]$Identity,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Rights,
+
+        [switch]$InheritToChildren
+    )
+
+    $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($InheritToChildren) {
+        $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+            [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    }
+
+    return [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $Identity,
+        [System.Security.AccessControl.FileSystemRights]$Rights,
+        $inheritanceFlags,
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+}
+
+function Set-WorkerToolPermission {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$GpgHomeDirectory,
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ComputerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccountName,
+
+        [switch]$InheritToChildren
+    )
+
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Set worker tool permissions')) {
+        return
+    }
+
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($accessRule in @($acl.Access)) {
+        [void]$acl.RemoveAccessRuleSpecific($accessRule)
+    }
+
+    foreach ($permission in Get-WorkerToolPermissionPlan -ComputerName $ComputerName -AccountName $AccountName) {
+        $identity = [System.Security.Principal.NTAccount]::new($permission.IdentityName)
+        $ruleParameters = @{
+            Identity = $identity
+            Rights = $permission.FileSystemRights
+        }
+        if ($InheritToChildren) {
+            $ruleParameters.InheritToChildren = $true
+        }
+        [void]$acl.AddAccessRule((Get-WorkerToolAccessRule @ruleParameters))
+    }
+
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Install-WorkerToolIfChanged {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolSourcePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ToolDestinationPath,
 
         [Parameter(Mandatory = $true)]
         [string]$ComputerName,
@@ -219,86 +237,27 @@ function Set-WorkerGpgHomePermission {
         [string]$AccountName
     )
 
-    if (-not $PSCmdlet.ShouldProcess($GpgHomeDirectory, 'Set GnuPG home permissions')) {
-        return
+    if (-not (Test-Path -LiteralPath $ToolSourcePath -PathType Leaf)) {
+        throw "The worker tool was not found at '$ToolSourcePath'."
     }
 
-    New-Item -Path $GpgHomeDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-    $acl = Get-Acl -LiteralPath $GpgHomeDirectory
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($accessRule in @($acl.Access)) {
-        [void]$acl.RemoveAccessRuleSpecific($accessRule)
+    $destinationDirectory = Split-Path -Parent $ToolDestinationPath
+    New-Item -Path $destinationDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+
+    $copyTool = $true
+    if (Test-Path -LiteralPath $ToolDestinationPath -PathType Leaf) {
+        $sourceHash = (Get-FileHash -LiteralPath $ToolSourcePath -Algorithm SHA256).Hash
+        $destinationHash = (Get-FileHash -LiteralPath $ToolDestinationPath -Algorithm SHA256).Hash
+        $copyTool = $sourceHash -ne $destinationHash
     }
 
-    foreach ($permission in Get-WorkerGpgHomePermissionPlan -ComputerName $ComputerName -AccountName $AccountName) {
-        if ($permission.IdentityName -like 'S-1-*') {
-            $identity = [System.Security.Principal.SecurityIdentifier]::new($permission.IdentityName)
-        }
-        else {
-            $identity = [System.Security.Principal.NTAccount]::new($permission.IdentityName)
-        }
-        [void]$acl.AddAccessRule((Get-WorkerAccessRule -Identity $identity -Rights $permission.FileSystemRights))
-    }
-    Set-Acl -LiteralPath $GpgHomeDirectory -AclObject $acl
-}
-
-function Write-WorkerGpgConfiguration {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$GpgExecutablePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$GpgHomeDirectory,
-
-        [Parameter(Mandatory = $true)]
-        [string]$GpgConfigPath
-    )
-
-    $configurationDirectory = Split-Path -Parent $GpgConfigPath
-    New-Item -Path $configurationDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-
-    $configuration = [pscustomobject]@{
-        gpgPath = $GpgExecutablePath
-        homeDir = $GpgHomeDirectory
-    }
-    $json = ConvertTo-Json -InputObject $configuration
-    $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
-    [System.IO.File]::WriteAllText($GpgConfigPath, $json, $utf8WithoutBom)
-}
-
-function Import-WorkerGpgPublicKey {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$GpgPublicKey,
-
-        [Parameter(Mandatory = $true)]
-        [string]$GpgExecutablePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$GpgHomeDirectory
-    )
-
-    if ($GpgPublicKey -notmatch '-----BEGIN PGP PUBLIC KEY BLOCK-----' -or
-        $GpgPublicKey -match '-----BEGIN PGP PRIVATE KEY BLOCK-----') {
-        throw 'GpgPublicKey must contain an ASCII-armored public key and no private key.'
+    if ($copyTool) {
+        Copy-Item -LiteralPath $ToolSourcePath -Destination $ToolDestinationPath -Force -ErrorAction Stop
     }
 
-    $keyFilePath = Join-Path ([System.IO.Path]::GetTempPath()) "$([guid]::NewGuid().ToString()).asc"
-    try {
-        [System.IO.File]::WriteAllText($keyFilePath, $GpgPublicKey, [System.Text.Encoding]::ASCII)
-        $process = Start-Process -FilePath $GpgExecutablePath -ArgumentList @(
-            '--homedir', "`"$GpgHomeDirectory`"", '--batch', '--import', "`"$keyFilePath`""
-        ) -Wait -PassThru -NoNewWindow
-
-        if ($process.ExitCode -ne 0) {
-            throw "GnuPG could not import the configured public key (exit code $($process.ExitCode))."
-        }
-    }
-    finally {
-        Remove-Item -LiteralPath $keyFilePath -Force -ErrorAction SilentlyContinue
-    }
+    Set-WorkerToolPermission -Path $destinationDirectory -ComputerName $ComputerName `
+        -AccountName $AccountName -InheritToChildren
+    Set-WorkerToolPermission -Path $ToolDestinationPath -ComputerName $ComputerName -AccountName $AccountName
 }
 
 function Invoke-WorkerSetup {
@@ -307,34 +266,23 @@ function Invoke-WorkerSetup {
         [Parameter(Mandatory = $true)]
         [string]$SvcAzAutoPassword,
 
-        [Parameter(Mandatory = $true)]
-        [string]$GpgPublicKey,
-
         [string]$SvcAzAutoAccountName = 'svc-azauto',
         [string]$PowerShellVersion = '7.4.13',
         [string]$PowerShellMsiUrl = 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.13/PowerShell-7.4.13-win-x64.msi',
-        [string]$Gpg4winInstallerUrl = 'https://files.gpg4win.org/gpg4win-4.4.1.exe',
-        [string]$PowerShellExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe',
-        [string]$GpgExecutablePath = 'C:\Program Files (x86)\GnuPG\bin\gpg.exe',
-        [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto'),
-        [string]$GpgConfigPath = (Join-Path $env:ProgramData 'OrchestratorSpike\gpg.json')
+        [string]$ToolSourcePath = '.\Convert-Extract.ps1',
+        [string]$PowerShellExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe'
     )
 
     $passwordParameters = @{ Password = $SvcAzAutoPassword }
-    $svcAzAutoSecurePassword = ConvertTo-WorkerSecurePassword @passwordParameters
-    $accountParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $svcAzAutoSecurePassword }
+    $securePassword = ConvertTo-WorkerSecurePassword @passwordParameters
+    $accountParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $securePassword }
     New-WorkerLocalAccount @accountParameters
-    Install-WorkerPrerequisite -PowerShellVersion $PowerShellVersion -PowerShellMsiUrl $PowerShellMsiUrl `
-        -Gpg4winInstallerUrl $Gpg4winInstallerUrl -PowerShellExecutablePath $PowerShellExecutablePath `
-        -GpgExecutablePath $GpgExecutablePath
 
-    Set-WorkerGpgHomePermission -GpgHomeDirectory $GpgHomeDirectory -ComputerName $env:COMPUTERNAME -AccountName $SvcAzAutoAccountName
-    # GNUPGHOME points run-as jobs at a keyring readable only by the mirrored worker account and administrators.
-    [System.Environment]::SetEnvironmentVariable('GNUPGHOME', $GpgHomeDirectory, 'Machine')
-    $env:GNUPGHOME = $GpgHomeDirectory
-    Write-WorkerGpgConfiguration -GpgExecutablePath $GpgExecutablePath -GpgHomeDirectory $GpgHomeDirectory `
-        -GpgConfigPath $GpgConfigPath
-    Import-WorkerGpgPublicKey -GpgPublicKey $GpgPublicKey -GpgExecutablePath $GpgExecutablePath -GpgHomeDirectory $GpgHomeDirectory
+    Install-WorkerPowerShell -PowerShellVersion $PowerShellVersion -PowerShellMsiUrl $PowerShellMsiUrl `
+        -PowerShellExecutablePath $PowerShellExecutablePath
+    Install-WorkerToolIfChanged -ToolSourcePath $ToolSourcePath `
+        -ToolDestinationPath 'C:\Tools\OrchestratorSpike\Convert-Extract.ps1' `
+        -ComputerName $env:COMPUTERNAME -AccountName $SvcAzAutoAccountName
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

@@ -15,11 +15,7 @@ BeforeAll {
     . $script:nasScriptPath -SvcLaPassword 'nas-test-password' -SvcAzAutoPassword 'worker-test-password' `
         -SmbRemoteAddresses @('10.10.1.0/26')
     . $script:workerScriptPath -SvcAzAutoPassword 'worker-test-password' `
-        -GpgPublicKey '-----BEGIN PGP PUBLIC KEY BLOCK-----' `
-        -PowerShellMsiUrl 'https://example.invalid/powershell.msi' `
-        -Gpg4winInstallerUrl 'https://example.invalid/gpg4win.exe' `
-        -GpgHomeDirectory '/tmp/gnupg-test-home' `
-        -GpgConfigPath '/tmp/orchestrator-spike-gpg-test.json'
+        -PowerShellMsiUrl 'https://example.invalid/powershell.msi'
 }
 
 Describe 'NAS setup planning' {
@@ -82,10 +78,10 @@ Describe 'Hybrid worker setup' {
         (ConvertTo-WorkerSecurePassword -Password 'worker-test-password') | Should -BeOfType [securestring]
     }
 
-    It 'plans the specified PowerShell and Gpg4win package releases' {
+    It 'defaults the worker tool source path next to the setup script' {
         $PowerShellVersion | Should -Be '7.4.13'
         $PowerShellMsiUrl | Should -Be 'https://example.invalid/powershell.msi'
-        $Gpg4winInstallerUrl | Should -Be 'https://example.invalid/gpg4win.exe'
+        $ToolSourcePath | Should -Be '.\Convert-Extract.ps1'
     }
 
     It 'updates an existing mirrored worker account password' {
@@ -112,79 +108,74 @@ Describe 'Hybrid worker setup' {
         Should -Invoke Set-LocalUser -Times 0
     }
 
-    It 'rejects unsigned packages before launching an installer' {
+    It 'rejects unsigned PowerShell MSI packages before launching an installer' {
         Mock Invoke-WebRequest {}
         Mock Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'NotSigned' } }
         Mock Start-Process {}
 
         {
-            Install-VerifiedPackage -Uri 'https://example.invalid/package.exe' -Extension '.exe' -InstallerArguments @('/S')
+            Install-VerifiedPackage -Uri 'https://example.invalid/package.msi' -Extension '.msi' -InstallerArguments @('/quiet')
         } | Should -Throw
 
         Should -Invoke Start-Process -Times 0
     }
 
-    It 'skips package installers when the requested worker tools are already installed' {
-        Mock Get-InstalledProductVersion {
-            if ($ExecutablePath -like '*pwsh.exe') {
-                return '7.4.13'
-            }
-
-            return '2.4.8'
-        }
+    It 'skips the PowerShell installer when the requested version is already installed' {
+        Mock Get-InstalledProductVersion { '7.4.13' }
         Mock Install-VerifiedPackage {}
 
-        Install-WorkerPrerequisite -PowerShellVersion '7.4.13' -PowerShellMsiUrl 'https://example.invalid/powershell.msi' `
-            -Gpg4winInstallerUrl 'https://example.invalid/gpg4win.exe' `
-            -PowerShellExecutablePath 'C:\Program Files\PowerShell\7\pwsh.exe' `
-            -GpgExecutablePath 'C:\Program Files (x86)\GnuPG\bin\gpg.exe'
+        Install-WorkerPowerShell -PowerShellVersion '7.4.13' -PowerShellMsiUrl 'https://example.invalid/powershell.msi' `
+            -PowerShellExecutablePath 'C:\Program Files\PowerShell\7\pwsh.exe'
 
         Should -Invoke Install-VerifiedPackage -Times 0
     }
 
-    It 'imports an armored public key into the configured GnuPG home' {
-        Mock Start-Process { [pscustomobject]@{ ExitCode = 0 } }
-        $keyParameters = @{
-            GpgPublicKey = "-----BEGIN PGP PUBLIC KEY BLOCK-----`nZGF0YQ==`n-----END PGP PUBLIC KEY BLOCK-----"
-            GpgExecutablePath = '/usr/bin/gpg'
-            GpgHomeDirectory = '/tmp/gnupg-test-home'
-        }
-
-        Import-WorkerGpgPublicKey @keyParameters
-
-        Should -Invoke Start-Process -Times 1
-    }
-
-    It 'gives svc-azauto Modify access to the GnuPG home' {
+    It 'grants the local tool only to Administrators and svc-azauto' {
         $computerName = [System.Environment]::MachineName
-        $permissions = @(Get-WorkerGpgHomePermissionPlan -ComputerName $computerName -AccountName 'svc-azauto')
+        $permissions = @(Get-WorkerToolPermissionPlan -ComputerName $computerName -AccountName 'svc-azauto')
         $workerIdentity = "$computerName\svc-azauto"
         $workerPermission = @($permissions | Where-Object IdentityName -eq $workerIdentity)
+        $administratorPermission = @($permissions | Where-Object IdentityName -eq 'BUILTIN\Administrators')
 
+        $permissions.Count | Should -Be 2
         $workerPermission.Count | Should -Be 1
-        $workerPermission[0].FileSystemRights | Should -Be 'Modify'
+        $workerPermission[0].FileSystemRights | Should -Be 'ReadAndExecute'
+        $administratorPermission.Count | Should -Be 1
+        $administratorPermission[0].FileSystemRights | Should -Be 'FullControl'
     }
 
-    It 'writes the GnuPG executable and home paths for runbooks' {
-        $configPath = Join-Path $TestDrive 'OrchestratorSpike\gpg.json'
-        Write-WorkerGpgConfiguration -GpgExecutablePath 'C:\Program Files (x86)\GnuPG\bin\gpg.exe' `
-            -GpgHomeDirectory 'C:\ProgramData\GnuPG\svc-azauto' -GpgConfigPath $configPath
+    It 'copies the local tool only when its content changes' {
+        $sourcePath = Join-Path $TestDrive 'Convert-Extract.ps1'
+        $destinationDirectory = Join-Path $TestDrive 'Tools\OrchestratorSpike'
+        $destinationPath = Join-Path $destinationDirectory 'Convert-Extract.ps1'
+        Set-Content -LiteralPath $sourcePath -Value 'Write-Output "conversion tool"' -NoNewline
+        Mock Set-WorkerToolPermission {}
 
-        $configuration = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-        $configuration.gpgPath | Should -Be 'C:\Program Files (x86)\GnuPG\bin\gpg.exe'
-        $configuration.homeDir | Should -Be 'C:\ProgramData\GnuPG\svc-azauto'
+        Install-WorkerToolIfChanged -ToolSourcePath $sourcePath -ToolDestinationPath $destinationPath `
+            -ComputerName ([System.Environment]::MachineName) -AccountName 'svc-azauto'
+
+        (Get-Content -LiteralPath $destinationPath -Raw) | Should -Be 'Write-Output "conversion tool"'
+        Should -Invoke Set-WorkerToolPermission -Times 2
+
+        Mock Copy-Item {}
+        Install-WorkerToolIfChanged -ToolSourcePath $sourcePath -ToolDestinationPath $destinationPath `
+            -ComputerName ([System.Environment]::MachineName) -AccountName 'svc-azauto'
+
+        Should -Invoke Copy-Item -Times 0
     }
 
-    It 'rejects private keys instead of importing them' {
-        Mock Start-Process {}
-        $invalidKeyParameters = @{
-            GpgPublicKey = 'not-an-armored-key'
-            GpgExecutablePath = '/usr/bin/gpg'
-            GpgHomeDirectory = '/tmp/gnupg-test-home'
-        }
+    It 'replaces the installed local tool when its content changes' {
+        $sourcePath = Join-Path $TestDrive 'updated-Convert-Extract.ps1'
+        $destinationDirectory = Join-Path $TestDrive 'UpdatedTools\OrchestratorSpike'
+        $destinationPath = Join-Path $destinationDirectory 'Convert-Extract.ps1'
+        Set-Content -LiteralPath $sourcePath -Value 'Write-Output "updated conversion tool"' -NoNewline
+        New-Item -Path $destinationDirectory -ItemType Directory -Force | Out-Null
+        Set-Content -LiteralPath $destinationPath -Value 'Write-Output "old conversion tool"' -NoNewline
+        Mock Set-WorkerToolPermission {}
 
-        { Import-WorkerGpgPublicKey @invalidKeyParameters } | Should -Throw
+        Install-WorkerToolIfChanged -ToolSourcePath $sourcePath -ToolDestinationPath $destinationPath `
+            -ComputerName ([System.Environment]::MachineName) -AccountName 'svc-azauto'
 
-        Should -Invoke Start-Process -Times 0
+        (Get-Content -LiteralPath $destinationPath -Raw) | Should -Be 'Write-Output "updated conversion tool"'
     }
 }
