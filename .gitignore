@@ -9,5 +9,6 @@ __pycache__/
 *.pem
 *.key
 *.pfx
+test-data/j1/large_partner_extract.csv
 # Local files from fast-start, never committed
 .fast-start/

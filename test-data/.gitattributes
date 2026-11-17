@@ -1,0 +1,4 @@
+# Keep fixtures byte-exact on every checkout: PDF xref offsets and SHA-256 checks break if Git converts line endings.
+* -text
+*.pdf binary
+*.dat binary
