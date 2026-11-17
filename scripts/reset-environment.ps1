@@ -30,6 +30,22 @@ function Get-Setting {
     return $value
 }
 
+function Get-OptionalSetting {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$DefaultValue
+    )
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if (-not $value -and (Get-Command azd -ErrorAction SilentlyContinue)) {
+        Get-AzdValue
+        $value = $script:AzdValues[$Name]
+    }
+    if (-not $value) {
+        return $DefaultValue
+    }
+    return $value
+}
+
 function Invoke-AzCli {
     param([Parameter(Mandatory)][string[]]$Arguments)
     $result = & az @Arguments
@@ -87,12 +103,13 @@ function Clear-FtpDirectory {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][Security.SecureString]$FtpCredential,
-        [Parameter(Mandatory)][string]$Fqdn
+        [Parameter(Mandatory)][string]$Fqdn,
+        [Parameter(Mandatory)][string]$FtpPort
     )
 
     $listing = Invoke-Curl -User $FtpCredential -Arguments @(
         '--ftp-pasv', '--fail', '--silent', '--show-error',
-        '--list-only', "ftp://$Fqdn/outbound/$Path/"
+        '--list-only', "ftp://$Fqdn`:$FtpPort/outbound/$Path/"
     )
     foreach ($entry in $listing) {
         $filename = "$entry".Trim()
@@ -111,7 +128,7 @@ function Clear-FtpDirectory {
             try {
                 $null = Invoke-Curl -User $FtpCredential -Arguments @(
                     '--ftp-pasv', '--fail', '--silent', '--show-error',
-                    '--quote', "-DELE /outbound/$relativePath", "ftp://$Fqdn/"
+                    '--quote', "-DELE /outbound/$relativePath", "ftp://$Fqdn`:$FtpPort/"
                 )
             }
             catch {
@@ -119,7 +136,7 @@ function Clear-FtpDirectory {
                 Clear-FtpDirectory @parameters
                 $null = Invoke-Curl -User $FtpCredential -Arguments @(
                     '--ftp-pasv', '--fail', '--silent', '--show-error',
-                    '--quote', "-RMD /outbound/$relativePath", "ftp://$Fqdn/"
+                    '--quote', "-RMD /outbound/$relativePath", "ftp://$Fqdn`:$FtpPort/"
                 )
             }
         }
@@ -132,6 +149,7 @@ function Invoke-ResetEnvironment {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $keyVault = Get-Setting KEY_VAULT_NAME
     $fqdn = Get-Setting PARTNER_VM_FQDN
+    $ftpPort = Get-OptionalSetting PARTNER_FTP_PORT -DefaultValue '2121'
     $nasVmName = Get-Setting NAS_VM_NAME
     $nasShare = Get-Setting NAS_SHARE_UNC
     $storageAccount = Get-Setting DATA_STORAGE_ACCOUNT_NAME
@@ -145,7 +163,7 @@ function Invoke-ResetEnvironment {
     $ftpCredential = ConvertTo-FtpSecureString -Value "partner-a:$password"
     try {
         foreach ($directory in 'j1', 'j2', 'j4', 'archive') {
-            $parameters = @{ Path = $directory; FtpCredential = $ftpCredential; Fqdn = $fqdn }
+            $parameters = @{ Path = $directory; FtpCredential = $ftpCredential; Fqdn = $fqdn; FtpPort = $ftpPort }
             Clear-FtpDirectory @parameters
         }
     }

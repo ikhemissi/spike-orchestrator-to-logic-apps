@@ -27,6 +27,10 @@ require_values() {
 require_values AZURE_RESOURCE_GROUP AZURE_SUBSCRIPTION_ID KEY_VAULT_NAME PARTNER_VM_FQDN \
   NAS_VM_NAME NAS_SHARE_UNC DATA_STORAGE_ACCOUNT_NAME NAT_PUBLIC_IP PARTNER_VM_NAME PARTNER_NSG_NAME \
   SERVERS_NSG_NAME WORKER_VM_NAMES AUTOMATION_ACCOUNT_NAME HYBRID_WORKER_GROUP LOGIC_APP_NAME
+if [[ -z "${PARTNER_FTP_PORT:-}" ]] && command -v azd >/dev/null; then
+  load_azd_values PARTNER_FTP_PORT
+fi
+PARTNER_FTP_PORT=${PARTNER_FTP_PORT:-2121}
 
 # Restore FTP access and the partner VM before trying to clean up the FTP folders.
 bash "$(dirname "$0")/inject-fault.sh" restore-all >/dev/null
@@ -50,19 +54,19 @@ IFS= read -r password < <(az keyvault secret show --vault-name "$KEY_VAULT_NAME"
 empty_ftp_directory() {
   local directory=$1 listing filename
   listing=$(curl_with_password "$password" --ftp-pasv --fail --silent --show-error \
-    --list-only "ftp://$PARTNER_VM_FQDN/outbound/$directory/")
+    --list-only "ftp://$PARTNER_VM_FQDN:$PARTNER_FTP_PORT/outbound/$directory/")
   while IFS= read -r filename; do
     [[ -n "$filename" ]] || continue
     [[ "$filename" == . || "$filename" == .. ]] && continue
     [[ "$filename" =~ ^[A-Za-z0-9._~-]+$ ]] || { echo "Unsafe FTP filename in $directory: $filename" >&2; exit 1; }
     # VERIFY: confirm the FTP server accepts absolute DELE/RMD paths and NLST directory entries.
     if curl_with_password "$password" --ftp-pasv --fail --silent --show-error \
-      --quote "-DELE /outbound/$directory/$filename" "ftp://$PARTNER_VM_FQDN/"; then
+      --quote "-DELE /outbound/$directory/$filename" "ftp://$PARTNER_VM_FQDN:$PARTNER_FTP_PORT/"; then
       continue
     fi
     empty_ftp_directory "$directory/$filename"
     curl_with_password "$password" --ftp-pasv --fail --silent --show-error \
-      --quote "-RMD /outbound/$directory/$filename" "ftp://$PARTNER_VM_FQDN/"
+      --quote "-RMD /outbound/$directory/$filename" "ftp://$PARTNER_VM_FQDN:$PARTNER_FTP_PORT/"
   done <<<"$listing"
 }
 

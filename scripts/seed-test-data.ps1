@@ -30,6 +30,22 @@ function Get-Setting {
     return $value
 }
 
+function Get-OptionalSetting {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$DefaultValue
+    )
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if (-not $value -and (Get-Command azd -ErrorAction SilentlyContinue)) {
+        Get-AzdValue
+        $value = $script:AzdValues[$Name]
+    }
+    if (-not $value) {
+        return $DefaultValue
+    }
+    return $value
+}
+
 function Invoke-AzCli {
     param([Parameter(Mandatory)][string[]]$Arguments)
     $result = & az @Arguments
@@ -164,6 +180,7 @@ function Invoke-SeedScenario {
             $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
             $keyVault = Get-Setting KEY_VAULT_NAME
             $fqdn = Get-Setting PARTNER_VM_FQDN
+            $ftpPort = Get-OptionalSetting PARTNER_FTP_PORT -DefaultValue '2121'
             $password = Invoke-AzCli -Arguments @(
                 'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--name', 'ftp-partner-a-password',
                 '--query', 'value', '--output', 'tsv', '--subscription', $subscription
@@ -176,7 +193,7 @@ function Invoke-SeedScenario {
                 foreach ($file in $files) {
                     Invoke-Curl -User $ftpCredential -Arguments @(
                         '--ftp-pasv', '--fail', '--silent', '--show-error',
-                        '-T', $file, "ftp://$fqdn/outbound/$Scenario/"
+                        '-T', $file, "ftp://$fqdn`:$ftpPort/outbound/$Scenario/"
                     )
                 }
             }
