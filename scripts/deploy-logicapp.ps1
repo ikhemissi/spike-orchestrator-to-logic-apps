@@ -130,11 +130,19 @@ try {
     }
 
     $workflowApiUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$($env:AZURE_RESOURCE_GROUP)/providers/Microsoft.Web/sites/$($env:LOGIC_APP_NAME)/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
-    Invoke-Az -Arguments @(
-        'rest',
-        '--method', 'get',
-        '--url', $workflowApiUrl
-    )
+    # The runtime answers 503 for a while after the restart.
+    $retrySeconds = if ($env:DEPLOY_RETRY_SECONDS) { [int]$env:DEPLOY_RETRY_SECONDS } else { 30 }
+    foreach ($attempt in 1..10) {
+        try {
+            Invoke-Az -Arguments @('rest', '--method', 'get', '--url', $workflowApiUrl)
+            break
+        }
+        catch {
+            if ($attempt -eq 10) { throw 'The workflow runtime did not answer after the restart.' }
+            Write-Warning "The workflow runtime is not ready yet (attempt $attempt/10); retrying in $retrySeconds s."
+            Start-Sleep -Seconds $retrySeconds
+        }
+    }
 }
 finally {
     if ($null -ne $archive) {

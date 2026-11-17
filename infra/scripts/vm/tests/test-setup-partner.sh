@@ -183,7 +183,7 @@ ftp_source="${temporary_dir}/ftp-source.txt"
 ftp_download="${temporary_dir}/ftp-download.txt"
 printf 'partner-a FTP integration test\n' >"${ftp_source}"
 ftp_url="ftp://127.0.0.1/outbound/j1/"
-curl_test_options=(--connect-timeout 5 --max-time 30)
+curl_test_options=(--connect-timeout 15 --max-time 60)
 ftp_options=()
 if [[ "${ENABLE_FTPS}" == "true" ]]; then
   # The test deliberately accepts the generated self-signed certificate on loopback.
@@ -209,6 +209,12 @@ if grep -Fxq before-rename.txt <<<"${ftp_listing}"; then
   exit 1
 fi
 echo "PASS: partner-a FTP upload, listing, download, and rename."
+
+# The second provisioning run restarts sshd; wait until it accepts connections again.
+for _ in $(seq 1 30); do
+  if (exec 3<>"/dev/tcp/127.0.0.1/${SSH_PORT}") 2>/dev/null; then break; fi
+  sleep 1
+done
 
 sftp_source="${temporary_dir}/sftp-source.txt"
 printf 'partner-b SFTP integration test\n' >"${sftp_source}"

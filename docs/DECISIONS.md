@@ -9,6 +9,8 @@ Every choice, simplification against production and fallback, with its date. VER
 | D3 | 2026-11-17 | J3's local tool converts CSV to JSON (`Convert-Extract.ps1`, installed only on the workers) instead of encrypting with GnuPG | Same P3 demonstration (a tool that exists only in the datacenter, run as a dedicated account), deterministic output checked against expected files, no key distribution to a job account's profile | The real local tool, installed and versioned by the datacenter's software distribution |
 | D4 | 2026-11-17 | Every VM uses the size setting `VM_SIZE`, default `Standard_D2als_v7` (2 vCPU, 4 GiB) | B-series sizes were not available to the test subscription in the region ([01](experiments/01-verify-items.md) V1) | Size per role, from the real servers |
 | D5 | 2026-11-17 | No policy assignment forcing jobs onto hybrid workers | No built-in definition found ([01](experiments/01-verify-items.md) V2); a custom definition is out of scope | A custom policy, or the Automation account used only with hybrid worker groups |
+| D6 | 2026-11-17 | The Logic App's runtime storage account keeps shared keys (the runtime's content share uses the account key); workflows reach Azure only with the managed identity, and the data account has shared keys disabled | Workflow Standard plans mount their content share with the account key | Same, plus private endpoints for the runtime storage (`enable_private_storage`) |
+| D7 | 2026-11-17 | The Logic App's public network access stays enabled, so that `azd`/zip deployment works from a laptop | Simplest deployment path for the spike | Private inbound access, deployment from a runner inside the network |
 
 ## VERIFY items
 
