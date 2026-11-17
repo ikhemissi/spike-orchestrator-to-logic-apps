@@ -7,28 +7,30 @@ Describe 'Partner file helpers' {
     It 'lists FTP or SFTP files through curl' {
         Mock Invoke-CurlCommand { return @('one.csv', 'two.csv') }
 
-        $files = Get-PartnerFile -Url 'ftp://partner.example/outbound/'
+        $files = Get-PartnerFile -Url 'ftp://partner.example:2121/outbound/'
 
         $files | Should -Be @('one.csv', 'two.csv')
         Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
-            $Arguments -contains '--list-only' -and $Arguments -contains '--ftp-pasv'
+            $Arguments -contains '--list-only' -and $Arguments -contains '--ftp-pasv' -and
+            $Arguments[-1] -eq 'ftp://partner.example:2121/outbound/'
         }
     }
 
     It 'does not pass the FTP passive-mode option to SFTP' {
         Mock Invoke-CurlCommand { return @('one.csv') }
 
-        Get-PartnerFile -Url 'sftp://partner.example/outbound/' | Should -Be 'one.csv'
+        Get-PartnerFile -Url 'sftp://partner.example:2222/outbound/' | Should -Be 'one.csv'
 
         Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
-            $Arguments -contains '--list-only' -and $Arguments -notcontains '--ftp-pasv'
+            $Arguments -contains '--list-only' -and $Arguments -notcontains '--ftp-pasv' -and
+            $Arguments[-1] -eq 'sftp://partner.example:2222/outbound/'
         }
     }
 
     It 'signs in to SFTP with a private key when one is given' {
         Mock Invoke-CurlCommand { return @() }
 
-        Get-PartnerFile -Url 'sftp://partner.example/outbound/' -UserName 'partner-b' -PrivateKeyPath '/keys/partner-b' | Out-Null
+        Get-PartnerFile -Url 'sftp://partner.example:2222/outbound/' -UserName 'partner-b' -PrivateKeyPath '/keys/partner-b' | Out-Null
 
         Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
             ($Arguments -join ' ') -match '--user partner-b: --key /keys/partner-b'
@@ -38,10 +40,10 @@ Describe 'Partner file helpers' {
     It 'deletes an FTP file with DELE against its parent folder' {
         Mock Invoke-CurlCommand { return @() }
 
-        Remove-PartnerFile -Url 'ftp://partner.example/outbound/old%20file.csv' -Confirm:$false
+        Remove-PartnerFile -Url 'ftp://partner.example:2121/outbound/old%20file.csv' -Confirm:$false
 
         Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
-            $Arguments[-1] -eq 'ftp://partner.example/outbound/' -and
+            $Arguments[-1] -eq 'ftp://partner.example:2121/outbound/' -and
             $Arguments -contains 'DELE /outbound/old file.csv'
         }
     }
@@ -49,10 +51,10 @@ Describe 'Partner file helpers' {
     It 'deletes an SFTP file with rm against its parent folder' {
         Mock Invoke-CurlCommand { return @() }
 
-        Remove-PartnerFile -Url 'sftp://partner.example/outbound/old.csv' -Confirm:$false
+        Remove-PartnerFile -Url 'sftp://partner.example:2222/outbound/old.csv' -Confirm:$false
 
         Should -Invoke Invoke-CurlCommand -Times 1 -ParameterFilter {
-            $Arguments[-1] -eq 'sftp://partner.example/outbound/' -and $Arguments -contains 'rm /outbound/old.csv'
+            $Arguments[-1] -eq 'sftp://partner.example:2222/outbound/' -and $Arguments -contains 'rm /outbound/old.csv'
         }
     }
 }
@@ -66,12 +68,13 @@ Describe 'Partner password handling' {
         }
         $credential = [System.Management.Automation.PSCredential]::new('partner-a', $password)
 
-        Get-PartnerFile -Url 'ftp://partner.example/outbound/' -Credential $credential | Should -Be 'one.csv'
+        Get-PartnerFile -Url 'ftp://partner.example:2121/outbound/' -Credential $credential | Should -Be 'one.csv'
 
         Should -Invoke Invoke-ExternalCommand -Times 1 -ParameterFilter {
             $Name -eq 'curl' -and
             ($Arguments -join ' ') -notmatch 'p@ss' -and
             ($Arguments -join ' ') -match '^--config - ' -and
+            $Arguments[-1] -eq 'ftp://partner.example:2121/outbound/' -and
             $InputText -eq 'user = "partner-a:p@ss\"word"'
         }
     }

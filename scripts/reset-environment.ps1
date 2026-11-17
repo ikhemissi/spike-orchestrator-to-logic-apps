@@ -132,7 +132,7 @@ function Clear-FtpDirectory {
                 )
             }
             catch {
-                $parameters = @{ Path = $relativePath; FtpCredential = $FtpCredential; Fqdn = $Fqdn }
+                $parameters = @{ Path = $relativePath; FtpCredential = $FtpCredential; Fqdn = $Fqdn; FtpPort = $FtpPort }
                 Clear-FtpDirectory @parameters
                 $null = Invoke-Curl -User $FtpCredential -Arguments @(
                     '--ftp-pasv', '--fail', '--silent', '--show-error',
