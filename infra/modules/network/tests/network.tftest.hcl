@@ -21,6 +21,7 @@ run "subnets_and_zones" {
       container-apps    = { address_prefix = "10.0.0.0/23", delegation = "Microsoft.App/environments" }
       private-endpoints = { address_prefix = "10.0.2.0/24" }
       jumpbox           = { address_prefix = "10.0.3.0/27", default_outbound_access = false }
+      app-service       = { address_prefix = "10.0.4.0/26", delegation = "Microsoft.Web/serverFarms" }
     }
     private_dns_zones = ["privatelink.vaultcore.azure.net"]
   }
@@ -28,6 +29,14 @@ run "subnets_and_zones" {
   assert {
     condition     = azurerm_subnet.main["container-apps"].delegation[0].service_delegation[0].name == "Microsoft.App/environments"
     error_message = "The container-apps subnet is delegated to Container Apps."
+  }
+  assert {
+    condition     = azurerm_subnet.main["container-apps"].delegation[0].service_delegation[0].actions == toset(["Microsoft.Network/virtualNetworks/subnets/join/action"])
+    error_message = "Container Apps delegations declare the join action."
+  }
+  assert {
+    condition     = azurerm_subnet.main["app-service"].delegation[0].service_delegation[0].actions == toset(["Microsoft.Network/virtualNetworks/subnets/action"])
+    error_message = "App Service plan delegations declare the action Azure records for them, so that plans stay clean."
   }
   assert {
     condition     = length(azurerm_subnet.main["private-endpoints"].delegation) == 0

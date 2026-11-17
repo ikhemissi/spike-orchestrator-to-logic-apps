@@ -92,4 +92,13 @@ if [[ -z "$subscription_id" ]]; then
 fi
 
 workflow_api_url="https://management.azure.com/subscriptions/$subscription_id/resourceGroups/$AZURE_RESOURCE_GROUP/providers/Microsoft.Web/sites/$LOGIC_APP_NAME/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
-az rest --method get --url "$workflow_api_url"
+# The runtime answers 503 for a while after the restart.
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if az rest --method get --url "$workflow_api_url"; then
+    exit 0
+  fi
+  echo "The workflow runtime is not ready yet (attempt $attempt/10); retrying in 30 s." >&2
+  sleep "${DEPLOY_RETRY_SECONDS:-30}"
+done
+echo "The workflow runtime did not answer after the restart." >&2
+exit 1
