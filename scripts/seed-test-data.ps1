@@ -63,7 +63,7 @@ function Invoke-Curl {
         & curl @Arguments
     }
 
-    function New-FtpCredential {
+    function ConvertTo-FtpSecureString {
         param([Parameter(Mandatory)][string]$Value)
         $credential = [Security.SecureString]::new()
         foreach ($character in $Value.ToCharArray()) {
@@ -170,7 +170,7 @@ function Invoke-SeedScenario {
             if (-not $password) {
                 throw 'Key Vault returned an empty FTP password'
             }
-            $ftpCredential = New-FtpCredential -Value "partner-a:$password"
+            $ftpCredential = ConvertTo-FtpSecureString -Value "partner-a:$password"
             try {
                 foreach ($file in $files) {
                     Invoke-Curl -User $ftpCredential -Arguments @(
