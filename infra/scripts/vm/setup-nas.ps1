@@ -1,13 +1,14 @@
 # Configure the simulated NAS share, its local users, and SMB access.
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '', Justification = 'Custom Script Extension supplies passwords through protected settings.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateNotNull()]
-    [securestring]$SvcLaPassword,
+    [ValidateNotNullOrEmpty()]
+    [string]$SvcLaPassword,
 
     [Parameter(Mandatory = $true)]
-    [ValidateNotNull()]
-    [securestring]$SvcAzAutoPassword,
+    [ValidateNotNullOrEmpty()]
+    [string]$SvcAzAutoPassword,
 
     [string]$SvcLaAccountName = 'svc-la',
 
@@ -23,6 +24,17 @@ param(
 
     [string]$FirewallRuleName = 'Spike-SMB-In'
 )
+
+function ConvertTo-NasSecurePassword {
+    [CmdletBinding()]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Custom Script Extension supplies passwords through protected settings; convert immediately for local account APIs.')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Password
+    )
+
+    return ConvertTo-SecureString -String $Password -AsPlainText -Force
+}
 
 function Get-NasDirectoryPlan {
     return @(
@@ -90,6 +102,8 @@ function New-NasLocalAccount {
     )
 
     if (Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue) {
+        $accountParameters = @{ Name = $AccountName; Password = $Password }
+        Set-LocalUser @accountParameters
         return
     }
 
@@ -221,14 +235,37 @@ function Set-NasSharePermission {
     }
 }
 
+function Set-NasFirewallRule {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FirewallRuleName,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$SmbRemoteAddresses
+    )
+
+    if (-not $PSCmdlet.ShouldProcess($FirewallRuleName, 'Configure SMB firewall rule')) {
+        return
+    }
+
+    if (-not (Get-NetFirewallRule -Name $FirewallRuleName -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name $FirewallRuleName -DisplayName $FirewallRuleName -Direction Inbound -Action Allow `
+            -Protocol TCP -LocalPort 445 -RemoteAddress $SmbRemoteAddresses -Profile Any -Enabled True | Out-Null
+        return
+    }
+
+    Set-NetFirewallRule -Name $FirewallRuleName -RemoteAddress $SmbRemoteAddresses
+}
+
 function Invoke-NasSetup {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [securestring]$SvcLaPassword,
+        [string]$SvcLaPassword,
 
         [Parameter(Mandatory = $true)]
-        [securestring]$SvcAzAutoPassword,
+        [string]$SvcAzAutoPassword,
 
         [string]$SvcLaAccountName = 'svc-la',
 
@@ -244,8 +281,12 @@ function Invoke-NasSetup {
         [string]$FirewallRuleName = 'Spike-SMB-In'
     )
 
-    $svcLaParameters = @{ AccountName = $SvcLaAccountName; Password = $SvcLaPassword }
-    $svcAzAutoParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $SvcAzAutoPassword }
+    $svcLaPasswordParameters = @{ Password = $SvcLaPassword }
+    $svcAzAutoPasswordParameters = @{ Password = $SvcAzAutoPassword }
+    $svcLaSecurePassword = ConvertTo-NasSecurePassword @svcLaPasswordParameters
+    $svcAzAutoSecurePassword = ConvertTo-NasSecurePassword @svcAzAutoPasswordParameters
+    $svcLaParameters = @{ AccountName = $SvcLaAccountName; Password = $svcLaSecurePassword }
+    $svcAzAutoParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $svcAzAutoSecurePassword }
     New-NasLocalAccount @svcLaParameters
     New-NasLocalAccount @svcAzAutoParameters
 
@@ -280,10 +321,7 @@ function Invoke-NasSetup {
         "$computerName\$SvcAzAutoAccountName"
     )
 
-    if (-not (Get-NetFirewallRule -Name $FirewallRuleName -ErrorAction SilentlyContinue)) {
-        New-NetFirewallRule -Name $FirewallRuleName -DisplayName $FirewallRuleName -Direction Inbound -Action Allow `
-            -Protocol TCP -LocalPort 445 -RemoteAddress $SmbRemoteAddresses -Profile Any -Enabled True | Out-Null
-    }
+    Set-NasFirewallRule -FirewallRuleName $FirewallRuleName -SmbRemoteAddresses $SmbRemoteAddresses
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

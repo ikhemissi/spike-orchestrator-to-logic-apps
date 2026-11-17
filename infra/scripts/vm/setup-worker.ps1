@@ -1,9 +1,10 @@
 # Install the worker prerequisites and prepare its local run-as account and GnuPG keyring.
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '', Justification = 'Custom Script Extension supplies the password through protected settings.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateNotNull()]
-    [securestring]$SvcAzAutoPassword,
+    [ValidateNotNullOrEmpty()]
+    [string]$SvcAzAutoPassword,
 
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
@@ -21,8 +22,21 @@ param(
 
     [string]$GpgExecutablePath = 'C:\Program Files (x86)\GnuPG\bin\gpg.exe', # VERIFY: confirm the install path for the selected Gpg4win release.
 
-    [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto')
+    [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto'),
+
+    [string]$GpgConfigPath = (Join-Path $env:ProgramData 'OrchestratorSpike\gpg.json')
 )
+
+function ConvertTo-WorkerSecurePassword {
+    [CmdletBinding()]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Custom Script Extension supplies the password through protected settings; convert immediately for the local account API.')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Password
+    )
+
+    return ConvertTo-SecureString -String $Password -AsPlainText -Force
+}
 
 function New-WorkerLocalAccount {
     [CmdletBinding(SupportsShouldProcess = $true)]
@@ -35,6 +49,8 @@ function New-WorkerLocalAccount {
     )
 
     if (Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue) {
+        $accountParameters = @{ Name = $AccountName; Password = $Password }
+        Set-LocalUser @accountParameters
         return
     }
 
@@ -164,6 +180,32 @@ function Get-WorkerAccessRule {
     )
 }
 
+function Get-WorkerGpgHomePermissionPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ComputerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccountName
+    )
+
+    return @(
+        [pscustomobject]@{
+            IdentityName = 'S-1-5-32-544'
+            FileSystemRights = 'FullControl'
+        },
+        [pscustomobject]@{
+            IdentityName = 'S-1-5-18'
+            FileSystemRights = 'FullControl'
+        },
+        [pscustomobject]@{
+            IdentityName = "$ComputerName\$AccountName"
+            FileSystemRights = 'Modify'
+        }
+    )
+}
+
 function Set-WorkerGpgHomePermission {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -188,13 +230,41 @@ function Set-WorkerGpgHomePermission {
         [void]$acl.RemoveAccessRuleSpecific($accessRule)
     }
 
-    $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
-    $systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
-    $workerIdentity = [System.Security.Principal.NTAccount]::new("$ComputerName\$AccountName")
-    [void]$acl.AddAccessRule((Get-WorkerAccessRule -Identity $administratorsSid -Rights 'FullControl'))
-    [void]$acl.AddAccessRule((Get-WorkerAccessRule -Identity $systemSid -Rights 'FullControl'))
-    [void]$acl.AddAccessRule((Get-WorkerAccessRule -Identity $workerIdentity -Rights 'Modify'))
+    foreach ($permission in Get-WorkerGpgHomePermissionPlan -ComputerName $ComputerName -AccountName $AccountName) {
+        if ($permission.IdentityName -like 'S-1-*') {
+            $identity = [System.Security.Principal.SecurityIdentifier]::new($permission.IdentityName)
+        }
+        else {
+            $identity = [System.Security.Principal.NTAccount]::new($permission.IdentityName)
+        }
+        [void]$acl.AddAccessRule((Get-WorkerAccessRule -Identity $identity -Rights $permission.FileSystemRights))
+    }
     Set-Acl -LiteralPath $GpgHomeDirectory -AclObject $acl
+}
+
+function Write-WorkerGpgConfiguration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GpgExecutablePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$GpgHomeDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$GpgConfigPath
+    )
+
+    $configurationDirectory = Split-Path -Parent $GpgConfigPath
+    New-Item -Path $configurationDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+
+    $configuration = [pscustomobject]@{
+        gpgPath = $GpgExecutablePath
+        homeDir = $GpgHomeDirectory
+    }
+    $json = ConvertTo-Json -InputObject $configuration
+    $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($GpgConfigPath, $json, $utf8WithoutBom)
 }
 
 function Import-WorkerGpgPublicKey {
@@ -235,7 +305,7 @@ function Invoke-WorkerSetup {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [securestring]$SvcAzAutoPassword,
+        [string]$SvcAzAutoPassword,
 
         [Parameter(Mandatory = $true)]
         [string]$GpgPublicKey,
@@ -246,10 +316,13 @@ function Invoke-WorkerSetup {
         [string]$Gpg4winInstallerUrl = 'https://files.gpg4win.org/gpg4win-4.4.1.exe',
         [string]$PowerShellExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe',
         [string]$GpgExecutablePath = 'C:\Program Files (x86)\GnuPG\bin\gpg.exe',
-        [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto')
+        [string]$GpgHomeDirectory = (Join-Path $env:ProgramData 'GnuPG\svc-azauto'),
+        [string]$GpgConfigPath = (Join-Path $env:ProgramData 'OrchestratorSpike\gpg.json')
     )
 
-    $accountParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $SvcAzAutoPassword }
+    $passwordParameters = @{ Password = $SvcAzAutoPassword }
+    $svcAzAutoSecurePassword = ConvertTo-WorkerSecurePassword @passwordParameters
+    $accountParameters = @{ AccountName = $SvcAzAutoAccountName; Password = $svcAzAutoSecurePassword }
     New-WorkerLocalAccount @accountParameters
     Install-WorkerPrerequisite -PowerShellVersion $PowerShellVersion -PowerShellMsiUrl $PowerShellMsiUrl `
         -Gpg4winInstallerUrl $Gpg4winInstallerUrl -PowerShellExecutablePath $PowerShellExecutablePath `
@@ -259,6 +332,8 @@ function Invoke-WorkerSetup {
     # GNUPGHOME points run-as jobs at a keyring readable only by the mirrored worker account and administrators.
     [System.Environment]::SetEnvironmentVariable('GNUPGHOME', $GpgHomeDirectory, 'Machine')
     $env:GNUPGHOME = $GpgHomeDirectory
+    Write-WorkerGpgConfiguration -GpgExecutablePath $GpgExecutablePath -GpgHomeDirectory $GpgHomeDirectory `
+        -GpgConfigPath $GpgConfigPath
     Import-WorkerGpgPublicKey -GpgPublicKey $GpgPublicKey -GpgExecutablePath $GpgExecutablePath -GpgHomeDirectory $GpgHomeDirectory
 }
 

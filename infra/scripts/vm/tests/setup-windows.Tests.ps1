@@ -1,22 +1,32 @@
 Set-Item -Path Function:\global:Get-LocalUser -Value { }
 Set-Item -Path Function:\global:New-LocalUser -Value { }
+Set-Item -Path Function:\global:Set-LocalUser -Value { }
 Set-Item -Path Function:\global:Get-AuthenticodeSignature -Value { }
+Set-Item -Path Function:\global:Get-NetFirewallRule -Value { }
+Set-Item -Path Function:\global:New-NetFirewallRule -Value { }
+Set-Item -Path Function:\global:Set-NetFirewallRule -Value { }
 
 BeforeAll {
     $script:testPassword = [System.Security.SecureString]::new()
     $script:nasScriptPath = Join-Path $PSScriptRoot '..\setup-nas.ps1'
     $script:workerScriptPath = Join-Path $PSScriptRoot '..\setup-worker.ps1'
 
-    . $script:nasScriptPath -SvcLaPassword $script:testPassword -SvcAzAutoPassword $script:testPassword `
+    # Custom Script Extension supplies plaintext protected settings; script binding must accept strings.
+    . $script:nasScriptPath -SvcLaPassword 'nas-test-password' -SvcAzAutoPassword 'worker-test-password' `
         -SmbRemoteAddresses @('10.10.1.0/26')
-    . $script:workerScriptPath -SvcAzAutoPassword $script:testPassword `
+    . $script:workerScriptPath -SvcAzAutoPassword 'worker-test-password' `
         -GpgPublicKey '-----BEGIN PGP PUBLIC KEY BLOCK-----' `
         -PowerShellMsiUrl 'https://example.invalid/powershell.msi' `
         -Gpg4winInstallerUrl 'https://example.invalid/gpg4win.exe' `
-        -GpgHomeDirectory '/tmp/gnupg-test-home'
+        -GpgHomeDirectory '/tmp/gnupg-test-home' `
+        -GpgConfigPath '/tmp/orchestrator-spike-gpg-test.json'
 }
 
 Describe 'NAS setup planning' {
+    It 'converts the Custom Script Extension password into a SecureString for local accounts' {
+        (ConvertTo-NasSecurePassword -Password 'nas-test-password') | Should -BeOfType [securestring]
+    }
+
     It 'plans Modify only for each job account data folders' {
         $plan = @(Get-NasPermissionPlan)
         $modifyPlan = @($plan | Where-Object FileSystemRights -eq 'Modify')
@@ -31,52 +41,75 @@ Describe 'NAS setup planning' {
         Get-NasDirectoryPlan | Should -Contain 'folderwatch\processed'
     }
 
-    It "does not reset an existing local account's password" {
+    It 'updates an existing local account password' {
         Mock Get-LocalUser { [pscustomobject]@{ Name = $Name } }
+        Mock Set-LocalUser {}
         Mock New-LocalUser {}
 
         $accountParameters = @{ AccountName = 'svc-la'; Password = $script:testPassword }
         New-NasLocalAccount @accountParameters
 
         Should -Invoke New-LocalUser -Times 0
+        Should -Invoke Set-LocalUser -Times 1
     }
 
     It 'creates a missing local account with the supplied secure password' {
         Mock Get-LocalUser { $null }
+        Mock Set-LocalUser {}
         Mock New-LocalUser {}
 
         $accountParameters = @{ AccountName = 'svc-la'; Password = $script:testPassword }
         New-NasLocalAccount @accountParameters
 
         Should -Invoke New-LocalUser -Times 1
+        Should -Invoke Set-LocalUser -Times 0
+    }
+
+    It 'updates an existing SMB firewall rule remote-address scope' {
+        Mock Get-NetFirewallRule { [pscustomobject]@{ Name = $Name } }
+        Mock New-NetFirewallRule {}
+        Mock Set-NetFirewallRule {}
+
+        Set-NasFirewallRule -FirewallRuleName 'Spike-SMB-In' -SmbRemoteAddresses @('10.10.1.0/26')
+
+        Should -Invoke Set-NetFirewallRule -Times 1
+        Should -Invoke New-NetFirewallRule -Times 0
     }
 }
 
 Describe 'Hybrid worker setup' {
+    It 'converts the Custom Script Extension password into a SecureString for the worker account' {
+        (ConvertTo-WorkerSecurePassword -Password 'worker-test-password') | Should -BeOfType [securestring]
+    }
+
     It 'plans the specified PowerShell and Gpg4win package releases' {
         $PowerShellVersion | Should -Be '7.4.13'
         $PowerShellMsiUrl | Should -Be 'https://example.invalid/powershell.msi'
         $Gpg4winInstallerUrl | Should -Be 'https://example.invalid/gpg4win.exe'
     }
 
-    It "does not reset an existing mirrored worker account's password" {
+    It 'updates an existing mirrored worker account password' {
         Mock Get-LocalUser { [pscustomobject]@{ Name = $Name } }
+        Mock Set-LocalUser {}
         Mock New-LocalUser {}
 
         $accountParameters = @{ AccountName = 'svc-azauto'; Password = $script:testPassword }
         New-WorkerLocalAccount @accountParameters
 
         Should -Invoke New-LocalUser -Times 0
+        Should -Invoke Set-LocalUser -Times 1
     }
 
     It 'creates a missing worker account with the supplied secure password' {
         Mock Get-LocalUser { $null }
+        Mock Set-LocalUser {}
         Mock New-LocalUser {}
 
         $accountParameters = @{ AccountName = 'svc-azauto'; Password = $script:testPassword }
         New-WorkerLocalAccount @accountParameters
 
         Should -Invoke New-LocalUser -Times 1
+        Should -Invoke Set-LocalUser -Times 0
     }
 
     It 'rejects unsigned packages before launching an installer' {
@@ -120,6 +153,26 @@ Describe 'Hybrid worker setup' {
         Import-WorkerGpgPublicKey @keyParameters
 
         Should -Invoke Start-Process -Times 1
+    }
+
+    It 'gives svc-azauto Modify access to the GnuPG home' {
+        $computerName = [System.Environment]::MachineName
+        $permissions = @(Get-WorkerGpgHomePermissionPlan -ComputerName $computerName -AccountName 'svc-azauto')
+        $workerIdentity = "$computerName\svc-azauto"
+        $workerPermission = @($permissions | Where-Object IdentityName -eq $workerIdentity)
+
+        $workerPermission.Count | Should -Be 1
+        $workerPermission[0].FileSystemRights | Should -Be 'Modify'
+    }
+
+    It 'writes the GnuPG executable and home paths for runbooks' {
+        $configPath = Join-Path $TestDrive 'OrchestratorSpike\gpg.json'
+        Write-WorkerGpgConfiguration -GpgExecutablePath 'C:\Program Files (x86)\GnuPG\bin\gpg.exe' `
+            -GpgHomeDirectory 'C:\ProgramData\GnuPG\svc-azauto' -GpgConfigPath $configPath
+
+        $configuration = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        $configuration.gpgPath | Should -Be 'C:\Program Files (x86)\GnuPG\bin\gpg.exe'
+        $configuration.homeDir | Should -Be 'C:\ProgramData\GnuPG\svc-azauto'
     }
 
     It 'rejects private keys instead of importing them' {
