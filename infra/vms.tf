@@ -196,7 +196,6 @@ resource "azurerm_windows_virtual_machine" "nas" {
   ]
   tags = local.network_tags
 
-  # VERIFY: confirm the Windows Server 2022 image SKU in the target Azure region.
   source_image_reference {
     publisher = "MicrosoftWindowsServer"
     offer     = "WindowsServer"
@@ -223,7 +222,6 @@ resource "azurerm_windows_virtual_machine" "worker" {
   network_interface_ids = [azurerm_network_interface.worker[each.key].id]
   tags                  = local.network_tags
 
-  # VERIFY: confirm the Windows Server 2022 image SKU in the target Azure region.
   source_image_reference {
     publisher = "MicrosoftWindowsServer"
     offer     = "WindowsServer"
@@ -234,6 +232,11 @@ resource "azurerm_windows_virtual_machine" "worker" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "StandardSSD_LRS"
+  }
+
+  # The Hybrid Worker extension refuses to install on a VM without a managed identity.
+  identity {
+    type = "SystemAssigned"
   }
 }
 

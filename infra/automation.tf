@@ -35,7 +35,8 @@ resource "azurerm_automation_runtime_environment" "powershell" {
   runtime_language      = "PowerShell"
   # VERIFY: PowerShell 7.4 runtime acceptance must be confirmed at first Azure deployment.
   runtime_version = var.automation_runtime_version
-  tags            = local.network_tags
+  # A runtime environment accepts at most 3 tags; it is a child of the tagged Automation account.
+  tags = {}
 }
 
 resource "azurerm_automation_runbook" "convert_and_move" {
