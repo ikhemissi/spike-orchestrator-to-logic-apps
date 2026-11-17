@@ -131,14 +131,14 @@ inject_nas_block() {
   priority=$(python3 -c '
 import json, sys
 rules = json.load(sys.stdin)
-if any(rule["name"] == "copilot-nas-block" for rule in rules):
+if any(rule["name"] == "fault-nas-block" for rule in rules):
     raise SystemExit("NAS block rule already exists; restore it before injecting again")
 used = {int(rule["priority"]) for rule in rules}
 print(next((value for value in range(100, 4097) if value not in used), ""))
 ' <<<"$rules")
   [[ -n "$priority" ]] || { echo "No free NSG rule priority is available" >&2; return 1; }
   az network nsg rule create --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-    --nsg-name "$SERVERS_NSG_NAME" --name copilot-nas-block --priority "$priority" \
+    --nsg-name "$SERVERS_NSG_NAME" --name fault-nas-block --priority "$priority" \
     --direction Inbound --access Deny --protocol Tcp --source-address-prefixes "$subnet_prefix" \
     --source-port-ranges '*' --destination-address-prefixes "$nas_ip/32" --destination-port-ranges 445 --output none
 }
@@ -216,10 +216,10 @@ restore_nas_block() {
   local rules exists
   rules=$(az network nsg rule list --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
     --nsg-name "$SERVERS_NSG_NAME" --output json)
-  exists=$(python3 -c 'import json,sys; print(any(rule["name"] == "copilot-nas-block" for rule in json.load(sys.stdin)))' <<<"$rules")
+  exists=$(python3 -c 'import json,sys; print(any(rule["name"] == "fault-nas-block" for rule in json.load(sys.stdin)))' <<<"$rules")
   [[ "$exists" == True ]] || return 0
   az network nsg rule delete --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-    --nsg-name "$SERVERS_NSG_NAME" --name copilot-nas-block --output none
+    --nsg-name "$SERVERS_NSG_NAME" --name fault-nas-block --output none
 }
 
 set_ftp_password_secret() {

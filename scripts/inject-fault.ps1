@@ -162,7 +162,7 @@ function Invoke-NasBlock {
         'network', 'nsg', 'rule', 'list', '--resource-group', $resourceGroup,
         '--subscription', $subscription, '--nsg-name', $nsgName, '--output', 'json'
     ) | ConvertFrom-Json
-    if (@($rules | Where-Object { $_.name -eq 'copilot-nas-block' }).Count -gt 0) {
+    if (@($rules | Where-Object { $_.name -eq 'fault-nas-block' }).Count -gt 0) {
         throw 'NAS block rule already exists; restore it before injecting again'
     }
     $usedPriorities = @($rules | ForEach-Object { [int]$_.priority })
@@ -175,7 +175,7 @@ function Invoke-NasBlock {
     }
     $null = Invoke-AzCli -Arguments @(
         'network', 'nsg', 'rule', 'create', '--resource-group', $resourceGroup,
-        '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'copilot-nas-block',
+        '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'fault-nas-block',
         '--priority', "$priority", '--direction', 'Inbound', '--access', 'Deny', '--protocol', 'Tcp',
         '--source-address-prefixes', "$subnetPrefix", '--source-port-ranges', '*',
         '--destination-address-prefixes', "$nasIp/32", '--destination-port-ranges', '445', '--output', 'none'
@@ -293,12 +293,12 @@ function Restore-NasBlock {
         'network', 'nsg', 'rule', 'list', '--resource-group', $resourceGroup,
         '--subscription', $subscription, '--nsg-name', $nsgName, '--output', 'json'
     ) | ConvertFrom-Json
-    if (@($rules | Where-Object { $_.name -eq 'copilot-nas-block' }).Count -eq 0) {
+    if (@($rules | Where-Object { $_.name -eq 'fault-nas-block' }).Count -eq 0) {
         return
     }
     $null = Invoke-AzCli -Arguments @(
         'network', 'nsg', 'rule', 'delete', '--resource-group', $resourceGroup,
-        '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'copilot-nas-block', '--output', 'none'
+        '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'fault-nas-block', '--output', 'none'
     )
 }
 

@@ -9,19 +9,19 @@ BeforeAll {
 
     Mock Invoke-AzCli {
         $script:AzCalls.Add(@($Arguments))
-        if ($Arguments[0..3] -join ' ' -eq 'network nsg rule list') {
+        if ($Arguments -contains '--nsg-name' -and $Arguments -contains 'list') {
             if ($Arguments -contains 'servers-nsg') {
                 return '[]'
             }
             return @($script:PartnerRule) | ConvertTo-Json -Compress
         }
-        if ($Arguments[0..1] -join ' ' -eq 'logicapp show') {
+        if ($Arguments -contains 'logicapp' -and $Arguments -contains 'show') {
             return '/subscriptions/test/resourceGroups/test/providers/Microsoft.Network/virtualNetworks/vnet/subnets/logicapp'
         }
-        if ($Arguments[0..3] -join ' ' -eq 'network vnet subnet show') {
+        if ($Arguments -contains '--ids') {
             return '10.10.0.0/27'
         }
-        if ($Arguments[0..2] -join ' ' -eq 'vm list-ip-addresses') {
+        if ($Arguments -contains 'list-ip-addresses') {
             return '10.20.0.4'
         }
         if ($Arguments[0..3] -join ' ' -eq 'network nsg rule update') {
@@ -65,7 +65,7 @@ Describe 'inject-fault partner-ip-block' {
 
         Invoke-NasBlock
 
-        $call = $script:AzCalls | Where-Object { $_ -contains 'copilot-nas-block' } | Select-Object -Last 1
+        $call = $script:AzCalls | Where-Object { $_ -contains 'fault-nas-block' } | Select-Object -Last 1
         $call | Should -Contain '10.10.0.0/27'
         $call | Should -Contain '10.20.0.4/32'
         $call | Should -Contain '445'

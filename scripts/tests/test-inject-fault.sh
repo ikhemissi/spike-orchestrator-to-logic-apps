@@ -77,7 +77,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as state_file:
     rules = json.load(state_file)["servers_rules"]
 assert len(rules) == 1
-assert rules[0]["name"] == "copilot-nas-block"
+assert rules[0]["name"] == "fault-nas-block"
 assert rules[0]["source"] == "10.10.0.0/27"
 assert rules[0]["destination"] == "10.20.0.4/32"
 assert rules[0]["ports"] == "445"

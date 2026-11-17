@@ -63,18 +63,19 @@ function Invoke-Curl {
         & curl @Arguments
     }
 
-    function ConvertTo-FtpSecureString {
-        param([Parameter(Mandatory)][string]$Value)
-        $credential = [Security.SecureString]::new()
-        foreach ($character in $Value.ToCharArray()) {
-            $credential.AppendChar($character)
-        }
-        $credential.MakeReadOnly()
-        return $credential
-    }
     if ($LASTEXITCODE -ne 0) {
         throw "curl failed with exit code $LASTEXITCODE"
     }
+}
+
+function ConvertTo-FtpSecureString {
+    param([Parameter(Mandatory)][string]$Value)
+    $credential = [Security.SecureString]::new()
+    foreach ($character in $Value.ToCharArray()) {
+        $credential.AppendChar($character)
+    }
+    $credential.MakeReadOnly()
+    return $credential
 }
 
 function Write-SeedFile {
