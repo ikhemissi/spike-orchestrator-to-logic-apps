@@ -1,0 +1,2 @@
+Synthetic folder-watch input.
+Scenario J5 (T18) should detect and process this file from the input folder.
