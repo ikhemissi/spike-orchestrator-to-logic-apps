@@ -7,7 +7,7 @@
         "type": "Recurrence",
         "recurrence": {
           "frequency": "Minute",
-          "interval": "@parameters('j2RecurrenceMinutes')",
+          "interval": "@int(parameters('j2RecurrenceMinutes'))",
           "timeZone": "Romance Standard Time"
         },
         "runtimeConfiguration": {

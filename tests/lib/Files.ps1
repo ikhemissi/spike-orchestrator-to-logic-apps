@@ -32,7 +32,9 @@ function Get-CurlKeyArgument {
     )
 
     if ($PrivateKeyPath) {
-        return @('--user', "$($UserName):", '--key', $PrivateKeyPath)
+        # The simulated partner's host key is created when it is provisioned and is not pinned here: the tests only
+        # read and clean the test folders. A real partner's host key is pinned in the SFTP connection.
+        return @('--user', "$($UserName):", '--key', $PrivateKeyPath, '--insecure')
     }
     return @()
 }

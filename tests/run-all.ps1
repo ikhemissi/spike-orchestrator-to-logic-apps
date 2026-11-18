@@ -300,6 +300,18 @@ function Invoke-TestRunner {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    $exitCode = Invoke-TestRunner -Only $Only -IncludeAlerts:$IncludeAlerts
+    # The job schedules are stretched to a day while the scenarios run, then restored.
+    $scheduleEnvironment = Get-TestEnvironment -RequiredNames @('AZURE_SUBSCRIPTION_ID', 'AZURE_RESOURCE_GROUP', 'LOGIC_APP_NAME')
+    $originalRecurrence = Get-JobRecurrenceInterval -Environment $scheduleEnvironment
+    if (-not $originalRecurrence) {
+        $originalRecurrence = '15'
+    }
+    Set-JobRecurrenceInterval -Environment $scheduleEnvironment -Minutes '1440'
+    try {
+        $exitCode = Invoke-TestRunner -Only $Only -IncludeAlerts:$IncludeAlerts
+    }
+    finally {
+        Set-JobRecurrenceInterval -Environment $scheduleEnvironment -Minutes $originalRecurrence
+    }
     exit $exitCode
 }

@@ -186,6 +186,24 @@ function Get-WorkflowRunAction {
     return @($response.value)
 }
 
+function Get-WorkflowActionOutput {
+    # The run API returns a link to an action's outputs, not the outputs themselves: follow the link.
+    param(
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [Parameter(Mandatory)][string]$WorkflowName,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$ActionName
+    )
+
+    $runUrl = Get-WorkflowManagementUrl -Environment $Environment -WorkflowName $WorkflowName -RunId $RunId
+    $action = Invoke-WorkflowManagementRequest -Method get -Url "$runUrl/actions/$([uri]::EscapeDataString($ActionName))?api-version=$script:LogicAppsManagementApiVersion"
+    $outputsUri = $action.properties.outputsLink.uri
+    if (-not $outputsUri) {
+        throw "Action '$ActionName' of run $RunId has no outputs."
+    }
+    return Invoke-RestMethod -Uri $outputsUri -Method Get
+}
+
 function Get-WorkflowTrackedProperty {
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Actions)
 
@@ -250,4 +268,56 @@ function Submit-WorkflowRun {
     $url = Get-WorkflowManagementUrl -Environment $Environment -WorkflowName $WorkflowName -RunId $RunId
     $url = "$url/resubmit?api-version=$script:LogicAppsManagementApiVersion"
     return Invoke-WorkflowManagementRequest -Method post -Url $url
+}
+
+function Wait-WorkflowRuntime {
+    # After an app setting change the app restarts and its runtime answers 503 for up to a few minutes.
+    param(
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [timespan]$Timeout = ([timespan]::FromMinutes(5))
+    )
+
+    $url = (Get-WorkflowManagementUrl -Environment $Environment -WorkflowName 'wf-diag-egress-ip' -RunList)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        try {
+            Invoke-WorkflowManagementRequest -Method get -Url $url | Out-Null
+            return
+        }
+        catch {
+            if ($clock.Elapsed -ge $Timeout) {
+                throw "The workflow runtime did not answer within $Timeout after a restart: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 15
+        }
+    }
+}
+
+function Get-JobRecurrenceInterval {
+    param([Parameter(Mandatory)][hashtable]$Environment)
+
+    return [string](Invoke-AzCommand -Arguments @(
+        'logicapp', 'config', 'appsettings', 'list',
+        '--resource-group', $Environment.AZURE_RESOURCE_GROUP, '--name', $Environment.LOGIC_APP_NAME,
+        '--query', "[?name=='JOB_RECURRENCE_MINUTES'].value | [0]", '--output', 'tsv'
+    ))
+}
+
+function Set-JobRecurrenceInterval {
+    # J1-J4 run on a schedule (JOB_RECURRENCE_MINUTES); a scheduled run during a scenario would take its seeded files.
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [Parameter(Mandatory)][string]$Minutes
+    )
+
+    if (-not $PSCmdlet.ShouldProcess($Environment.LOGIC_APP_NAME, "Set JOB_RECURRENCE_MINUTES to $Minutes")) {
+        return
+    }
+    Invoke-AzCommand -Arguments @(
+        'logicapp', 'config', 'appsettings', 'set',
+        '--resource-group', $Environment.AZURE_RESOURCE_GROUP, '--name', $Environment.LOGIC_APP_NAME,
+        '--settings', "JOB_RECURRENCE_MINUTES=$Minutes", '--output', 'none'
+    ) | Out-Null
+    Wait-WorkflowRuntime -Environment $Environment
 }
