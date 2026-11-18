@@ -43,9 +43,7 @@
     "fileSystemNas": {
       "displayName": "fileSystemNas",
       "parameterValues": {
-        "rootFolder": "@appsetting('NAS_ROOT_FOLDER')",
-        "username": "@appsetting('NAS_USERNAME')",
-        "password": "@appsetting('NAS_PASSWORD')"
+        "mountPath": "@appsetting('NAS_MOUNT_PATH')"
       },
       "serviceProvider": {
         "id": "/serviceProviders/FileSystem"

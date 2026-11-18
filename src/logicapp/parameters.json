@@ -122,5 +122,9 @@
   "j5ProcessedFolder": {
     "type": "String",
     "value": "folderwatch\\processed"
+  },
+  "j5RecurrenceMinutes": {
+    "type": "Int",
+    "value": 1
   }
 }

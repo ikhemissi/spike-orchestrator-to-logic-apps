@@ -160,7 +160,7 @@ function Invoke-SeedScenario {
         $vmName = Get-Setting NAS_VM_NAME
         $share = Get-Setting NAS_SHARE_UNC
         $relativeDirectory = if ($Scenario -in 'j3', 'j3-failure') { 'j3\in' } else { 'folderwatch\in' }
-        $shareLiteral = ConvertTo-PowerShellLiteral $share
+
         $entries = foreach ($file in $files) {
             $fileSize = (Get-Item -LiteralPath $file).Length
             if ($fileSize -gt 262144) {
@@ -170,16 +170,24 @@ function Invoke-SeedScenario {
             $name = [IO.Path]::GetFileName($file)
             "@{ Path = '$relativeDirectory\$name'; Content = '$encoded' }"
         }
-        $remoteScript = "`$share = $shareLiteral; `$files = @($($entries -join ',')); foreach (`$file in `$files) { `$path = Join-Path `$share `$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path `$path) | Out-Null; [IO.File]::WriteAllBytes(`$path, [Convert]::FromBase64String(`$file.Content)) }"
+        # On the NAS VM itself, run command runs as Local System, which has no rights on the share: write to the share's
+        # local folder instead, found from the share name (the last part of NAS_SHARE_UNC).
+        $shareName = ($share -split '\\')[-1]
+        $shareNameLiteral = ConvertTo-PowerShellLiteral -Value $shareName
+        $remoteScript = "`$ErrorActionPreference = 'Stop'; `$share = (Get-SmbShare -Name $shareNameLiteral).Path; `$files = @($($entries -join ',')); foreach (`$file in `$files) { `$path = Join-Path `$share `$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path `$path) | Out-Null; [IO.File]::WriteAllBytes(`$path, [Convert]::FromBase64String(`$file.Content)) }; 'SEEDED'"
         $scriptSize = [Text.Encoding]::UTF8.GetByteCount($remoteScript)
         if ($scriptSize -gt 28672) {
             throw "NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding ($scriptSize bytes)"
         }
-        # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.
-        $null = Invoke-AzCli -Arguments @(
+        # Run command reports success even when the script fails: check that the script reached its end.
+        $runOutput = Invoke-AzCli -Arguments @(
             'vm', 'run-command', 'invoke', '--resource-group', $resourceGroup, '--subscription', $subscription,
-            '--name', $vmName, '--command-id', 'RunPowerShellScript', '--scripts', $remoteScript, '--output', 'none'
+            '--name', $vmName, '--command-id', 'RunPowerShellScript', '--scripts', $remoteScript,
+            '--query', 'value[0].message', '--output', 'tsv'
         )
+        if (-not ("$runOutput" -like '*SEEDED*')) {
+            throw "Seeding the NAS failed: $runOutput"
+        }
     }
 }
 

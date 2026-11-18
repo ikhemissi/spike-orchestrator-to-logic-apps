@@ -1,0 +1,1271 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": "@parameters('j3RecurrenceMinutes')",
+          "timeZone": "Romance Standard Time"
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "runs": 1
+          }
+        }
+      }
+    },
+    "actions": {
+      "Init_CorrelationId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "correlationId",
+              "type": "string",
+              "value": "@{guid()}"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Init_StartedAt": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "startedAt",
+              "type": "string",
+              "value": "@{utcNow()}"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_CorrelationId": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_AutomationJobId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "automationJobId",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_StartedAt": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_JobStatus": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "jobStatus",
+              "type": "string",
+              "value": "Queued"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_AutomationJobId": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesProcessed": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesProcessed",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_JobStatus": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesSkipped": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesSkipped",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesProcessed": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesFailed": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesFailed",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesSkipped": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_Outcome": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "outcome",
+              "type": "string",
+              "value": "Running"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesFailed": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_ErrorCode": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "errorCode",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_Outcome": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Try": {
+        "type": "Scope",
+        "runAfter": {
+          "Init_ErrorCode": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "Create_job": {
+            "type": "ServiceProvider",
+            "inputs": {
+              "parameters": {
+                "subscriptionId": "@parameters('automationSubscriptionId')",
+                "resourceGroup": "@parameters('automationResourceGroup')",
+                "automationAccount": "@parameters('automationAccountName')",
+                "runbookName": "Invoke-ConvertAndMove",
+                "hybridAutomationWorkerGroup": "@parameters('hybridWorkerGroup')",
+                "waitForJob": false,
+                "runbookParameters": {
+                  "CorrelationId": "@variables('correlationId')",
+                  "SourcePath": "@parameters('j3SourcePath')",
+                  "TargetPath": "@parameters('j3TargetPath')",
+                  "ArchivePath": "@parameters('j3ArchivePath')",
+                  "ToolPath": "@parameters('j3ToolPath')",
+                  "MaxFiles": "@parameters('j3MaxFiles')"
+                }
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureAutomation",
+                "operationId": "createJob",
+                "serviceProviderId": "/serviceProviders/azureAutomation"
+              }
+            },
+            "runAfter": {},
+            "retryPolicy": {
+              "type": "none"
+            }
+          },
+          "Set_automation_job_id": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "automationJobId",
+              "value": "@body('Create_job')?['jobId']"
+            },
+            "runAfter": {
+              "Create_job": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Track_job_start": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "jobName": "J3",
+              "pattern": "P3",
+              "automationJobId": "@variables('automationJobId')",
+              "filesProcessed": "@variables('filesProcessed')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "filesFailed": "@variables('filesFailed')",
+              "outcome": "@variables('outcome')",
+              "errorCode": "@variables('errorCode')"
+            },
+            "runAfter": {
+              "Set_automation_job_id": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['jobName']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+              "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "errorCode": "@{action()?['inputs']?['errorCode']}"
+            }
+          },
+          "Until_job_terminal": {
+            "type": "Until",
+            "expression": "@or(equals(variables('jobStatus'), 'Completed'), equals(variables('jobStatus'), 'Failed'), equals(variables('jobStatus'), 'Stopped'), equals(variables('jobStatus'), 'Suspended'))",
+            "limit": {
+              "count": "@parameters('j3PollCount')",
+              "timeout": "@parameters('j3PollTimeout')"
+            },
+            "actions": {
+              "Delay_before_poll": {
+                "type": "Wait",
+                "inputs": {
+                  "interval": {
+                    "count": 15,
+                    "unit": "Second"
+                  }
+                },
+                "runAfter": {}
+              },
+              "Get_job_status": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "subscriptionId": "@parameters('automationSubscriptionId')",
+                    "resourceGroup": "@parameters('automationResourceGroup')",
+                    "automationAccount": "@parameters('automationAccountName')",
+                    "jobId": "@variables('automationJobId')"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "azureAutomation",
+                    "operationId": "getJobStatus",
+                    "serviceProviderId": "/serviceProviders/azureAutomation"
+                  }
+                },
+                "runAfter": {
+                  "Delay_before_poll": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "Set_job_status": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "jobStatus",
+                  "value": "@body('Get_job_status')?['status']"
+                },
+                "runAfter": {
+                  "Get_job_status": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            },
+            "runAfter": {
+              "Track_job_start": [
+                "Succeeded"
+              ]
+            }
+          },
+          "If_poll_timed_out": {
+            "type": "If",
+            "expression": {
+              "not": {
+                "or": [
+                  {
+                    "equals": [
+                      "@variables('jobStatus')",
+                      "Completed"
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@variables('jobStatus')",
+                      "Failed"
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@variables('jobStatus')",
+                      "Stopped"
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@variables('jobStatus')",
+                      "Suspended"
+                    ]
+                  }
+                ]
+              }
+            },
+            "actions": {
+              "Set_timeout_files_failed": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "filesFailed",
+                  "value": 1
+                },
+                "runAfter": {}
+              },
+              "Set_timeout_outcome": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "outcome",
+                  "value": "Failed"
+                },
+                "runAfter": {
+                  "Set_timeout_files_failed": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Set_timeout_error_code": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "errorCode",
+                  "value": "HYBRID_JOB_TIMEOUT"
+                },
+                "runAfter": {
+                  "Set_timeout_outcome": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Track_timeout": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J3",
+                  "pattern": "P3",
+                  "automationJobId": "@variables('automationJobId')",
+                  "filesProcessed": "@variables('filesProcessed')",
+                  "filesSkipped": "@variables('filesSkipped')",
+                  "filesFailed": "@variables('filesFailed')",
+                  "outcome": "@variables('outcome')",
+                  "errorCode": "@variables('errorCode')"
+                },
+                "runAfter": {
+                  "Set_timeout_error_code": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                  "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                  "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                  "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}",
+                  "errorCode": "@{action()?['inputs']?['errorCode']}"
+                }
+              },
+              "Report_timeout": {
+                "type": "Workflow",
+                "inputs": {
+                  "host": {
+                    "workflow": {
+                      "id": "wf-child-run-report"
+                    }
+                  },
+                  "body": {
+                    "correlationId": "@variables('correlationId')",
+                    "job": "J3",
+                    "pattern": "P3",
+                    "outcome": "@variables('outcome')",
+                    "startedAt": "@variables('startedAt')",
+                    "finishedAt": "@utcNow()",
+                    "filesProcessed": "@variables('filesProcessed')",
+                    "filesSkipped": "@variables('filesSkipped')",
+                    "filesFailed": "@variables('filesFailed')",
+                    "errors": [],
+                    "details": {
+                      "automationJobId": "@variables('automationJobId')",
+                      "lastStatus": "@variables('jobStatus')"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Track_timeout": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Terminate_timeout": {
+                "type": "Terminate",
+                "inputs": {
+                  "runStatus": "Failed",
+                  "runError": {
+                    "code": "HYBRID_JOB_TIMEOUT",
+                    "message": "Hybrid worker job did not reach a terminal state before the polling limit."
+                  }
+                },
+                "runAfter": {
+                  "Report_timeout": [
+                    "Succeeded",
+                    "Failed"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            },
+            "runAfter": {
+              "Until_job_terminal": [
+                "Succeeded",
+                "TimedOut"
+              ]
+            }
+          },
+          "If_job_completed": {
+            "type": "If",
+            "expression": {
+              "equals": [
+                "@variables('jobStatus')",
+                "Completed"
+              ]
+            },
+            "actions": {
+              "Get_job_output": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "subscriptionId": "@parameters('automationSubscriptionId')",
+                    "resourceGroup": "@parameters('automationResourceGroup')",
+                    "automationAccount": "@parameters('automationAccountName')",
+                    "jobId": "@variables('automationJobId')"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "azureAutomation",
+                    "operationId": "getJobOutput",
+                    "serviceProviderId": "/serviceProviders/azureAutomation"
+                  }
+                },
+                "runAfter": {},
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "Filter_runbook_json_lines": {
+                "type": "Query",
+                "inputs": {
+                  "from": "@split(string(body('Get_job_output')), decodeUriComponent('%0A'))",
+                  "where": "@startsWith(trim(item()), '{')"
+                },
+                "runAfter": {
+                  "Get_job_output": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "If_runbook_output_missing": {
+                "type": "If",
+                "expression": {
+                  "equals": [
+                    "@length(body('Filter_runbook_json_lines'))",
+                    0
+                  ]
+                },
+                "actions": {
+                  "Set_missing_output_files_failed": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "filesFailed",
+                      "value": 1
+                    },
+                    "runAfter": {}
+                  },
+                  "Set_missing_output_outcome": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "outcome",
+                      "value": "Failed"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_files_failed": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Set_missing_output_error_code": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "errorCode",
+                      "value": "RUNBOOK_REPORTED_FAILURE"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_outcome": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Track_missing_runbook_output": {
+                    "type": "Compose",
+                    "inputs": {
+                      "correlationId": "@variables('correlationId')",
+                      "jobName": "J3",
+                      "pattern": "P3",
+                      "automationJobId": "@variables('automationJobId')",
+                      "filesProcessed": "@variables('filesProcessed')",
+                      "filesSkipped": "@variables('filesSkipped')",
+                      "filesFailed": "@variables('filesFailed')",
+                      "outcome": "@variables('outcome')",
+                      "errorCode": "@variables('errorCode')"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_error_code": [
+                        "Succeeded"
+                      ]
+                    },
+                    "trackedProperties": {
+                      "correlationId": "@{action()?['inputs']?['correlationId']}",
+                      "jobName": "@{action()?['inputs']?['jobName']}",
+                      "pattern": "@{action()?['inputs']?['pattern']}",
+                      "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                      "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                      "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                      "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                      "outcome": "@{action()?['inputs']?['outcome']}",
+                      "errorCode": "@{action()?['inputs']?['errorCode']}"
+                    }
+                  },
+                  "Report_missing_runbook_output": {
+                    "type": "Workflow",
+                    "inputs": {
+                      "host": {
+                        "workflow": {
+                          "id": "wf-child-run-report"
+                        }
+                      },
+                      "body": {
+                        "correlationId": "@variables('correlationId')",
+                        "job": "J3",
+                        "pattern": "P3",
+                        "outcome": "@variables('outcome')",
+                        "startedAt": "@variables('startedAt')",
+                        "finishedAt": "@utcNow()",
+                        "filesProcessed": "@variables('filesProcessed')",
+                        "filesSkipped": "@variables('filesSkipped')",
+                        "filesFailed": "@variables('filesFailed')",
+                        "errors": [],
+                        "details": {
+                          "automationJobId": "@variables('automationJobId')",
+                          "jobStatus": "@variables('jobStatus')"
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Track_missing_runbook_output": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Terminate_missing_runbook_output": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Failed",
+                      "runError": {
+                        "code": "RUNBOOK_REPORTED_FAILURE",
+                        "message": "Azure Automation job output did not contain a JSON result line."
+                      }
+                    },
+                    "runAfter": {
+                      "Report_missing_runbook_output": [
+                        "Succeeded",
+                        "Failed"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {}
+                },
+                "runAfter": {
+                  "Filter_runbook_json_lines": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Parse_runbook_output": {
+                "type": "ParseJson",
+                "inputs": {
+                  "content": "@json(trim(last(body('Filter_runbook_json_lines'))))",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "correlationId",
+                      "status",
+                      "worker",
+                      "runAs",
+                      "filesProcessed",
+                      "filesSkipped",
+                      "filesFailed",
+                      "items",
+                      "errors",
+                      "startedAt",
+                      "completedAt"
+                    ],
+                    "properties": {
+                      "correlationId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "worker": {
+                        "type": "string"
+                      },
+                      "runAs": {
+                        "type": "string"
+                      },
+                      "filesProcessed": {
+                        "type": "integer"
+                      },
+                      "filesSkipped": {
+                        "type": "integer"
+                      },
+                      "filesFailed": {
+                        "type": "integer"
+                      },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "result",
+                            "sha256",
+                            "error"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "result": {
+                              "type": "string"
+                            },
+                            "sha256": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "error": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "errors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "code",
+                            "message",
+                            "file"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "file": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "startedAt": {
+                        "type": "string"
+                      },
+                      "completedAt": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "If_runbook_output_missing": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "If_runbook_succeeded": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@variables('jobStatus')",
+                        "Completed"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@body('Parse_runbook_output')?['status']",
+                        "Succeeded"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@body('Parse_runbook_output')?['filesFailed']",
+                        0
+                      ]
+                    }
+                  ]
+                },
+                "actions": {
+                  "Set_success_files_processed": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "filesProcessed",
+                      "value": "@body('Parse_runbook_output')?['filesProcessed']"
+                    },
+                    "runAfter": {}
+                  },
+                  "Set_success_files_skipped": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "filesSkipped",
+                      "value": "@body('Parse_runbook_output')?['filesSkipped']"
+                    },
+                    "runAfter": {
+                      "Set_success_files_processed": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Set_success_files_failed": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "filesFailed",
+                      "value": "@body('Parse_runbook_output')?['filesFailed']"
+                    },
+                    "runAfter": {
+                      "Set_success_files_skipped": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Set_success_outcome": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "outcome",
+                      "value": "Succeeded"
+                    },
+                    "runAfter": {
+                      "Set_success_files_failed": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Track_runbook_success": {
+                    "type": "Compose",
+                    "inputs": {
+                      "correlationId": "@variables('correlationId')",
+                      "jobName": "J3",
+                      "pattern": "P3",
+                      "automationJobId": "@variables('automationJobId')",
+                      "filesProcessed": "@variables('filesProcessed')",
+                      "filesSkipped": "@variables('filesSkipped')",
+                      "filesFailed": "@variables('filesFailed')",
+                      "outcome": "@variables('outcome')",
+                      "errorCode": "@variables('errorCode')"
+                    },
+                    "runAfter": {
+                      "Set_success_outcome": [
+                        "Succeeded"
+                      ]
+                    },
+                    "trackedProperties": {
+                      "correlationId": "@{action()?['inputs']?['correlationId']}",
+                      "jobName": "@{action()?['inputs']?['jobName']}",
+                      "pattern": "@{action()?['inputs']?['pattern']}",
+                      "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                      "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                      "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                      "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                      "outcome": "@{action()?['inputs']?['outcome']}",
+                      "errorCode": "@{action()?['inputs']?['errorCode']}"
+                    }
+                  },
+                  "Report_success": {
+                    "type": "Workflow",
+                    "inputs": {
+                      "host": {
+                        "workflow": {
+                          "id": "wf-child-run-report"
+                        }
+                      },
+                      "body": {
+                        "correlationId": "@variables('correlationId')",
+                        "job": "J3",
+                        "pattern": "P3",
+                        "outcome": "@variables('outcome')",
+                        "startedAt": "@variables('startedAt')",
+                        "finishedAt": "@utcNow()",
+                        "filesProcessed": "@variables('filesProcessed')",
+                        "filesSkipped": "@variables('filesSkipped')",
+                        "filesFailed": "@variables('filesFailed')",
+                        "errors": "@body('Parse_runbook_output')?['errors']",
+                        "details": "@addProperty(addProperty(body('Parse_runbook_output'), 'automationJobId', variables('automationJobId')), 'jobStatus', variables('jobStatus'))"
+                      }
+                    },
+                    "runAfter": {
+                      "Track_runbook_success": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {
+                    "Set_reported_failure_files_processed": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "filesProcessed",
+                        "value": "@body('Parse_runbook_output')?['filesProcessed']"
+                      },
+                      "runAfter": {}
+                    },
+                    "Set_reported_failure_files_skipped": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "filesSkipped",
+                        "value": "@body('Parse_runbook_output')?['filesSkipped']"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_files_processed": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Set_reported_failure_files_failed": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "filesFailed",
+                        "value": "@body('Parse_runbook_output')?['filesFailed']"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_files_skipped": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Set_reported_failure_outcome": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "outcome",
+                        "value": "Failed"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_files_failed": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Set_reported_failure_error_code": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "errorCode",
+                        "value": "RUNBOOK_REPORTED_FAILURE"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_outcome": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Track_runbook_failure": {
+                      "type": "Compose",
+                      "inputs": {
+                        "correlationId": "@variables('correlationId')",
+                        "jobName": "J3",
+                        "pattern": "P3",
+                        "automationJobId": "@variables('automationJobId')",
+                        "filesProcessed": "@variables('filesProcessed')",
+                        "filesSkipped": "@variables('filesSkipped')",
+                        "filesFailed": "@variables('filesFailed')",
+                        "outcome": "@variables('outcome')",
+                        "errorCode": "@variables('errorCode')"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_error_code": [
+                          "Succeeded"
+                        ]
+                      },
+                      "trackedProperties": {
+                        "correlationId": "@{action()?['inputs']?['correlationId']}",
+                        "jobName": "@{action()?['inputs']?['jobName']}",
+                        "pattern": "@{action()?['inputs']?['pattern']}",
+                        "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                        "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                        "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                        "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                        "outcome": "@{action()?['inputs']?['outcome']}",
+                        "errorCode": "@{action()?['inputs']?['errorCode']}"
+                      }
+                    },
+                    "Report_runbook_failure": {
+                      "type": "Workflow",
+                      "inputs": {
+                        "host": {
+                          "workflow": {
+                            "id": "wf-child-run-report"
+                          }
+                        },
+                        "body": {
+                          "correlationId": "@variables('correlationId')",
+                          "job": "J3",
+                          "pattern": "P3",
+                          "outcome": "@variables('outcome')",
+                          "startedAt": "@variables('startedAt')",
+                          "finishedAt": "@utcNow()",
+                          "filesProcessed": "@variables('filesProcessed')",
+                          "filesSkipped": "@variables('filesSkipped')",
+                          "filesFailed": "@variables('filesFailed')",
+                          "errors": "@body('Parse_runbook_output')?['errors']",
+                          "details": "@addProperty(addProperty(body('Parse_runbook_output'), 'automationJobId', variables('automationJobId')), 'jobStatus', variables('jobStatus'))"
+                        }
+                      },
+                      "runAfter": {
+                        "Track_runbook_failure": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Terminate_runbook_failure": {
+                      "type": "Terminate",
+                      "inputs": {
+                        "runStatus": "Failed",
+                        "runError": {
+                          "code": "RUNBOOK_REPORTED_FAILURE",
+                          "message": "@{concat('Runbook status ', body('Parse_runbook_output')?['status'], '; errors: ', string(body('Parse_runbook_output')?['errors']))}"
+                        }
+                      },
+                      "runAfter": {
+                        "Report_runbook_failure": [
+                          "Succeeded",
+                          "Failed"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Parse_runbook_output": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "actions": {
+                "Set_terminal_failure_files_failed": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "filesFailed",
+                    "value": 1
+                  },
+                  "runAfter": {}
+                },
+                "Set_terminal_failure_outcome": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "outcome",
+                    "value": "Failed"
+                  },
+                  "runAfter": {
+                    "Set_terminal_failure_files_failed": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Set_terminal_failure_error_code": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "errorCode",
+                    "value": "RUNBOOK_REPORTED_FAILURE"
+                  },
+                  "runAfter": {
+                    "Set_terminal_failure_outcome": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Track_terminal_failure": {
+                  "type": "Compose",
+                  "inputs": {
+                    "correlationId": "@variables('correlationId')",
+                    "jobName": "J3",
+                    "pattern": "P3",
+                    "automationJobId": "@variables('automationJobId')",
+                    "filesProcessed": "@variables('filesProcessed')",
+                    "filesSkipped": "@variables('filesSkipped')",
+                    "filesFailed": "@variables('filesFailed')",
+                    "outcome": "@variables('outcome')",
+                    "errorCode": "@variables('errorCode')"
+                  },
+                  "runAfter": {
+                    "Set_terminal_failure_error_code": [
+                      "Succeeded"
+                    ]
+                  },
+                  "trackedProperties": {
+                    "correlationId": "@{action()?['inputs']?['correlationId']}",
+                    "jobName": "@{action()?['inputs']?['jobName']}",
+                    "pattern": "@{action()?['inputs']?['pattern']}",
+                    "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                    "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                    "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                    "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                    "outcome": "@{action()?['inputs']?['outcome']}",
+                    "errorCode": "@{action()?['inputs']?['errorCode']}"
+                  }
+                },
+                "Report_terminal_failure": {
+                  "type": "Workflow",
+                  "inputs": {
+                    "host": {
+                      "workflow": {
+                        "id": "wf-child-run-report"
+                      }
+                    },
+                    "body": {
+                      "correlationId": "@variables('correlationId')",
+                      "job": "J3",
+                      "pattern": "P3",
+                      "outcome": "@variables('outcome')",
+                      "startedAt": "@variables('startedAt')",
+                      "finishedAt": "@utcNow()",
+                      "filesProcessed": "@variables('filesProcessed')",
+                      "filesSkipped": "@variables('filesSkipped')",
+                      "filesFailed": "@variables('filesFailed')",
+                      "errors": [],
+                      "details": {
+                        "automationJobId": "@variables('automationJobId')",
+                        "jobStatus": "@variables('jobStatus')"
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Track_terminal_failure": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Terminate_terminal_failure": {
+                  "type": "Terminate",
+                  "inputs": {
+                    "runStatus": "Failed",
+                    "runError": {
+                      "code": "RUNBOOK_REPORTED_FAILURE",
+                      "message": "@{concat('Azure Automation job ended with status ', variables('jobStatus'))}"
+                    }
+                  },
+                  "runAfter": {
+                    "Report_terminal_failure": [
+                      "Succeeded",
+                      "Failed"
+                    ]
+                  }
+                }
+              }
+            },
+            "runAfter": {
+              "If_poll_timed_out": [
+                "Succeeded"
+              ]
+            }
+          }
+        }
+      },
+      "Scope_Catch": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "actions": {
+          "Filter_failed_actions": {
+            "type": "Query",
+            "inputs": {
+              "from": "@result('Scope_Try')",
+              "where": "@or(equals(item()?['status'], 'Failed'), equals(item()?['status'], 'TimedOut'))"
+            },
+            "runAfter": {}
+          },
+          "Set_catch_outcome": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "outcome",
+              "value": "Failed"
+            },
+            "runAfter": {
+              "Filter_failed_actions": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Set_catch_error_code": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "errorCode",
+              "value": "J3_FAILED"
+            },
+            "runAfter": {
+              "Set_catch_outcome": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Set_catch_files_failed": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "filesFailed",
+              "value": 1
+            },
+            "runAfter": {
+              "Set_catch_error_code": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Track_workflow_failure": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "jobName": "J3",
+              "pattern": "P3",
+              "automationJobId": "@variables('automationJobId')",
+              "filesProcessed": "@variables('filesProcessed')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "filesFailed": "@variables('filesFailed')",
+              "outcome": "@variables('outcome')",
+              "errorCode": "@variables('errorCode')"
+            },
+            "runAfter": {
+              "Set_catch_files_failed": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['jobName']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+              "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "errorCode": "@{action()?['inputs']?['errorCode']}"
+            }
+          },
+          "Report_failure": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J3",
+                "pattern": "P3",
+                "outcome": "@variables('outcome')",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": "@variables('filesProcessed')",
+                "filesSkipped": "@variables('filesSkipped')",
+                "filesFailed": "@variables('filesFailed')",
+                "errors": "@body('Filter_failed_actions')",
+                "details": {
+                  "automationJobId": "@variables('automationJobId')",
+                  "errorCode": "@variables('errorCode')"
+                }
+              }
+            },
+            "runAfter": {
+              "Track_workflow_failure": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Terminate_failed": {
+            "type": "Terminate",
+            "inputs": {
+              "runStatus": "Failed",
+              "runError": {
+                "code": "@variables('errorCode')",
+                "message": "@{concat('J3 workflow action failed: ', string(body('Filter_failed_actions')))}"
+              }
+            },
+            "runAfter": {
+              "Report_failure": [
+                "Succeeded",
+                "Failed"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "outputs": {},
+    "parameters": {}
+  },
+  "kind": "Stateful"
+}

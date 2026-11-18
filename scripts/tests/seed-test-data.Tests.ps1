@@ -5,6 +5,9 @@ BeforeAll {
 
     Mock Invoke-AzCli {
         $script:AzCalls.Add(@($Arguments))
+        if ($Arguments -contains 'run-command') {
+            return 'SEEDED'
+        }
         if ($Arguments -contains 'value') {
             return 'fixture-password'
         }

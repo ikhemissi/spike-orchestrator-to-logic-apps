@@ -52,7 +52,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and TrackedProperties.filesProcessed, WorkflowName, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| summarize FilesProcessed = sum(toint(TrackedProperties.filesProcessed)) by WorkflowName, Day = bin(TimeGenerated, 1d)\n| order by Day desc",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and parse_json(TrackedProperties).filesProcessed, WorkflowName, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| summarize FilesProcessed = sum(toint(parse_json(TrackedProperties).filesProcessed)) by WorkflowName, Day = bin(TimeGenerated, 1d)\n| order by Day desc",
         "size": 0,
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -65,7 +65,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and TrackedProperties.errorCode, Status, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| where Status == \"Failed\"\n| summarize Failures = count() by ErrorCode = tostring(TrackedProperties.errorCode)\n| order by Failures desc",
+        "query": "// VERIFY: LogicAppWorkflowRuntime table and parse_json(TrackedProperties).errorCode, Status, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| where Status == \"Failed\"\n| summarize Failures = count() by ErrorCode = tostring(parse_json(TrackedProperties).errorCode)\n| order by Failures desc",
         "size": 0,
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -91,7 +91,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime tracked-property fields and AzureDiagnostics JobLogs correlation fields.\nlet SelectedCorrelationId = '{CorrelationId}';\nlet WorkflowRuns =\n    LogicAppWorkflowRuntime\n    | where tostring(TrackedProperties.correlationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(TrackedProperties.correlationId), WorkflowName, WorkflowStatus = Status, WorkflowTime = TimeGenerated, ErrorCode = tostring(TrackedProperties.errorCode);\nlet AutomationJobs =\n    AzureDiagnostics\n    | where Category == \"JobLogs\"\n    | where tostring(CorrelationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(CorrelationId), JobStatus = ResultType, Worker = tostring(WorkerName), JobTime = TimeGenerated;\nWorkflowRuns\n| join kind=leftouter AutomationJobs on CorrelationId\n| order by WorkflowTime asc",
+        "query": "// VERIFY: LogicAppWorkflowRuntime tracked-property fields and AzureDiagnostics JobLogs correlation fields.\nlet SelectedCorrelationId = '{CorrelationId}';\nlet WorkflowRuns =\n    LogicAppWorkflowRuntime\n    | where tostring(parse_json(TrackedProperties).correlationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(parse_json(TrackedProperties).correlationId), WorkflowName, WorkflowStatus = Status, WorkflowTime = TimeGenerated, ErrorCode = tostring(parse_json(TrackedProperties).errorCode);\nlet AutomationJobs =\n    AzureDiagnostics\n    | where Category == \"JobLogs\"\n    | where tostring(CorrelationId) == SelectedCorrelationId\n    | project CorrelationId = tostring(CorrelationId), JobStatus = ResultType, Worker = tostring(WorkerName), JobTime = TimeGenerated;\nWorkflowRuns\n| join kind=leftouter AutomationJobs on CorrelationId\n| order by WorkflowTime asc",
         "size": 0,
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
