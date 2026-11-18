@@ -1,7 +1,7 @@
 {
   "j1RecurrenceMinutes": {
-    "type": "Int",
-    "value": 15
+    "type": "String",
+    "value": "@appsetting('JOB_RECURRENCE_MINUTES')"
   },
   "j1SourceFolder": {
     "type": "String",
@@ -16,8 +16,8 @@
     "value": "/outbound/archive"
   },
   "j2RecurrenceMinutes": {
-    "type": "Int",
-    "value": 15
+    "type": "String",
+    "value": "@appsetting('JOB_RECURRENCE_MINUTES')"
   },
   "j2SourceFolder": {
     "type": "String",
@@ -40,8 +40,8 @@
     "value": ""
   },
   "j3RecurrenceMinutes": {
-    "type": "Int",
-    "value": 15
+    "type": "String",
+    "value": "@appsetting('JOB_RECURRENCE_MINUTES')"
   },
   "j3SourcePath": {
     "type": "String",
@@ -88,8 +88,8 @@
     "value": "@appsetting('HYBRID_WORKER_GROUP')"
   },
   "j4RecurrenceMinutes": {
-    "type": "Int",
-    "value": 15
+    "type": "String",
+    "value": "@appsetting('JOB_RECURRENCE_MINUTES')"
   },
   "j4SourceFolder": {
     "type": "String",

@@ -71,9 +71,15 @@ resource "azurerm_logic_app_standard" "main" {
   app_settings = merge(local.logicapp_settings, local.logicapp_connection_settings)
 
   lifecycle {
-    # Set by the zip deployment and by Application Insights, not by Terraform.
+    # Set by the zip deployment, by Application Insights and by scripts/pause-environment and the test runner.
     ignore_changes = [
       app_settings["WEBSITE_RUN_FROM_PACKAGE"],
+      app_settings["JOB_RECURRENCE_MINUTES"],
+      app_settings["Workflows.wf-j1-partner-ftp-to-sftp.FlowState"],
+      app_settings["Workflows.wf-j2-ftp-to-sharepoint.FlowState"],
+      app_settings["Workflows.wf-j3-convert-onprem.FlowState"],
+      app_settings["Workflows.wf-j4-ftp-sort-to-nas.FlowState"],
+      app_settings["Workflows.wf-j5-nas-folderwatch.FlowState"],
       tags["hidden-link: /app-insights-resource-id"],
     ]
   }

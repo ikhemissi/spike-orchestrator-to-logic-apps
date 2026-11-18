@@ -107,6 +107,10 @@ bash scripts/deploy-logicapp.sh
 
 PowerShell 7 operators can use `pwsh -File scripts/deploy-logicapp.ps1` after setting those same two environment variables.
 
+### Pause and resume
+
+Outside working hours, `scripts/pause-environment.sh` (or `.ps1`) disables the job workflows J1-J5 and deallocates the VMs; `scripts/resume-environment.sh` starts the VMs and enables the workflows again. J1-J4 run every `JOB_RECURRENCE_MINUTES` minutes (app setting, default 15); the test runner stretches it to a day while it runs.
+
 ### Start, stop, and cost
 
 The default deployment has three VMs (NAS, worker, and partner), each using `Standard_D2als_v7` (2 vCPU, 4 GiB); enabling the second worker adds a fourth VM. They have a daily auto-shutdown schedule at 20:00 Romance Standard Time. To start them again, or to shut them down before the schedule, use the resource group and VM names printed by `azd env get-values`:
