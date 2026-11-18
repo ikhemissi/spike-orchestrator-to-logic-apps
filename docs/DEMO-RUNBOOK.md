@@ -14,28 +14,40 @@ A 20-minute walkthrough for an operator who has provisioned and deployed the spi
    ```
 
 2. Confirm that the Logic App has `wf-j1-partner-ftp-to-sftp`, `wf-diag-egress-ip`, `wf-j4-ftp-sort-to-nas`, and `wf-j3-convert-onprem`, and that the Automation account has the `Invoke-ConvertAndMove` runbook. Deploy the current package first (`scripts/deploy-logicapp.sh`).
-3. Start the NAS, partner, and worker VMs. The azd environment stores their resource group and names:
+3. Resume the environment to start the VMs and enable the job workflows:
+
+   ```sh
+   bash scripts/resume-environment.sh
+   ```
+
+4. Check `JOB_RECURRENCE_MINUTES`. Its normal value is 15; if a scheduled run could overlap the demo, raise it (for example, to 1440 minutes) first:
 
    ```sh
    resource_group="$(azd env get-value AZURE_RESOURCE_GROUP)"
-   az vm start --resource-group "$resource_group" --name "$(azd env get-value NAS_VM_NAME)"
-   az vm start --resource-group "$resource_group" --name "$(azd env get-value PARTNER_VM_NAME)"
-   IFS=, read -r -a workers <<< "$(azd env get-value WORKER_VM_NAMES)"
-   for worker in "${workers[@]}"; do
-     az vm start --resource-group "$resource_group" --name "$worker"
-   done
+   logic_app="$(azd env get-value LOGIC_APP_NAME)"
+   az logicapp config appsettings list --resource-group "$resource_group" --name "$logic_app" \
+     --query "[?name=='JOB_RECURRENCE_MINUTES'].value | [0]" --output tsv
    ```
 
-4. Reset the test resources and seed J1. The reset restores injected faults, empties the test destinations, and deletes test report blobs.
+   If a scheduled run could overlap the demo, raise the interval, for example to 1440 minutes:
+
+   ```sh
+   resource_group="$(azd env get-value AZURE_RESOURCE_GROUP)"
+   logic_app="$(azd env get-value LOGIC_APP_NAME)"
+   az logicapp config appsettings set --resource-group "$resource_group" --name "$logic_app" \
+     --settings "JOB_RECURRENCE_MINUTES=1440" --output none
+   ```
+
+5. Reset the test resources and seed J1. The reset restores injected faults, empties the test destinations, and deletes test report blobs.
 
    ```sh
    bash scripts/reset-environment.sh
    bash scripts/seed-test-data.sh --scenario j1
    ```
 
-5. To fit the worker-offline demonstration into the session, configure the deployed Logic App parameter `j3PollTimeout` as `PT5M` before the demo. Its checked-in default is `PT30M`; allow more time if using the default. The `alert-hybrid-job-stuck` rule also checks for jobs queued over 10 minutes, so its alert can appear during the later workbook segment rather than immediately after the worker stops.
+6. To fit the worker-offline demonstration into the session, configure the deployed Logic App parameter `j3PollTimeout` as `PT5M` before the demo. Its checked-in default is `PT30M`; allow more time if using the default. The worker-offline step fails with `HYBRID_JOB_TIMEOUT` after five minutes when `j3PollTimeout=PT5M`. The `alert-hybrid-job-stuck` rule also checks for jobs queued over 10 minutes, so its alert can appear during the later workbook segment rather than immediately after the worker stops.
 
-All commands below run from the repository root in an authenticated shell. The seed and fault scripts load missing settings from the selected azd environment. Portal paths refer to the deployed resource group.
+The simulated partner listens on FTP TCP port 2121 and SFTP TCP port 2222 (decision D9). All commands below run from the repository root in an authenticated shell. The seed and fault scripts load missing settings from the selected azd environment. Portal paths refer to the deployed resource group.
 
 ## Steps
 
@@ -48,12 +60,13 @@ All commands below run from the repository root in an authenticated shell. The s
 | 12–17 min | Reset and seed J3: `bash scripts/reset-environment.sh` then `bash scripts/seed-test-data.sh --scenario j3`. Run `wf-j3-convert-onprem` from **Workflows** → workflow → **Overview** → **Run Trigger** → `Recurrence` → **Run**. In the Automation account, open **Process Automation** → **Jobs**, select the new `Invoke-ConvertAndMove` job, and show **Output**. In the NAS VM's **Run command** → **RunPowerShellScript**, run: `$share = '\\nas01.corp.local\share'; Get-ChildItem (Join-Path $share 'j3\out') -File | Select-Object -ExpandProperty Name`. Then inject the offline-worker fault with `bash scripts/inject-fault.sh worker-stop` and run J3 again from the portal. After showing the queued job and failed workflow (up to five minutes with `j3PollTimeout=PT5M`), restore the worker with `bash scripts/inject-fault.sh restore-all`. | The successful Automation job output is JSON and identifies `hw01\svc-azauto` as the run-as account; converted JSON files appear in `j3\out` and source CSV files are archived. With the worker stopped, the Automation job remains queued and the workflow ends with `HYBRID_JOB_TIMEOUT`. The worker-offline alert may take longer than this segment to appear; check it in the final workbook step. |
 | 17–20 min | In Azure portal, open the Log Analytics workspace → **Workbooks** → **Orchestrator to Logic Apps monitoring**. Enter the J3 or J1 `correlationId` in **Trace by correlation ID**. Open **Monitor** → **Alerts** to show any generated alerts. | The workbook links the Logic Apps run and, for J3, the Automation job under the same correlation ID. The alert list shows the failure alerts generated during the demo when their evaluation windows have elapsed. |
 
-## Restore after the demo
+## After the demo
 
 Always restore injected state, even if a demonstration step fails:
 
 ```sh
 bash scripts/inject-fault.sh restore-all
+bash scripts/pause-environment.sh
 ```
 
-To clear the test files and report blobs as well, run `bash scripts/reset-environment.sh`. Stop the VMs if they are no longer needed by replacing `start` with `deallocate` in the VM commands above; the daily auto-shutdown schedule is 20:00 Romance Standard Time. Remove the environment when the spike is finished with `azd down --purge`.
+`scripts/pause-environment.sh` disables the job workflows and deallocates the VMs. To clear the test files and report blobs as well, run `bash scripts/reset-environment.sh`. The daily auto-shutdown schedule is 20:00 Romance Standard Time. Remove the environment when the spike is finished with `azd down --purge`.
