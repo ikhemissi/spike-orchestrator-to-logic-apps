@@ -2,7 +2,7 @@ BeforeAll {
     . (Join-Path $PSScriptRoot '../inject-fault.ps1')
     $script:AzCalls = [Collections.Generic.List[object]]::new()
     $script:PartnerRule = [PSCustomObject]@{
-        name = 'partner-allow'
+        name = 'Allow-FTP-SFTP-From-NAT-And-Deployer'
         sourceAddressPrefixes = @('198.51.100.10', '203.0.113.8')
         description = 'partner allow list'
     }
@@ -50,12 +50,27 @@ Describe 'inject-fault partner-ip-block' {
 
         $script:PartnerRule.sourceAddressPrefixes | Should -Be @('203.0.113.8')
         $script:PartnerRule.description | Should -Match '^fault-restore:'
+        $updateCall = $script:AzCalls | Where-Object { $_ -contains 'update' } | Select-Object -First 1
+        $updateCall | Should -Contain 'Allow-FTP-SFTP-From-NAT-And-Deployer'
 
         Restore-PartnerIpBlock
 
         $script:PartnerRule.sourceAddressPrefixes | Should -Be @('198.51.100.10', '203.0.113.8')
         $script:PartnerRule.description | Should -Be 'partner allow list'
         $script:AzCalls.Count | Should -Be 4
+    }
+
+    It 'stops the partner FTP and SSH services on Ubuntu' {
+        $env:AZURE_RESOURCE_GROUP = 'test-rg'
+        $env:AZURE_SUBSCRIPTION_ID = '00000000-0000-0000-0000-000000000000'
+        $env:PARTNER_VM_NAME = 'partner-test'
+        $script:AzCalls.Clear()
+
+        Invoke-PartnerService -Action stop
+
+        $call = $script:AzCalls | Where-Object { $_ -contains 'RunShellScript' } | Select-Object -First 1
+        ($call -join ' ') | Should -Match 'systemctl stop vsftpd ssh'
+        ($call -join ' ') | Should -Not -Match 'sshd'
     }
 
     It 'scopes the NAS block to the Logic App subnet and NAS address on TCP 445' {

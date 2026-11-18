@@ -27,6 +27,7 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as state_file:
     rule = json.load(state_file)["partner_rule"]
+assert rule["name"] == "Allow-FTP-SFTP-From-NAT-And-Deployer"
 assert rule["sourceAddressPrefixes"] == ["203.0.113.8"]
 assert "198.51.100.10" not in rule["sourceAddressPrefixes"]
 assert rule["description"].startswith("fault-restore:")
@@ -65,7 +66,7 @@ assert state["secret_restore_version"] is None
 PY
 
 bash "$root/scripts/inject-fault.sh" partner-down >/dev/null
-grep -q 'systemctl stop vsftpd sshd' "$AZ_TEST_LOG"
+grep -q 'systemctl stop vsftpd ssh' "$AZ_TEST_LOG"
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
 grep -q 'systemctl start' "$AZ_TEST_LOG"
 

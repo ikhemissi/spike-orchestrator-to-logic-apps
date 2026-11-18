@@ -46,6 +46,8 @@ $script:TestEnvironmentNames = @(
     'NAT_PUBLIC_IP',
     'PARTNER_VM_NAME',
     'PARTNER_VM_FQDN',
+    'PARTNER_FTP_PORT',
+    'PARTNER_SFTP_PORT',
     'PARTNER_NSG_NAME',
     'NAS_VM_NAME',
     'NAS_SHARE_UNC',
@@ -110,6 +112,13 @@ function Get-TestEnvironment {
         catch {
             $loadError = $_.Exception.Message
         }
+    }
+
+    if (-not $values.ContainsKey('PARTNER_FTP_PORT')) {
+        $values['PARTNER_FTP_PORT'] = '2121'
+    }
+    if (-not $values.ContainsKey('PARTNER_SFTP_PORT')) {
+        $values['PARTNER_SFTP_PORT'] = '2222'
     }
 
     # Checked again: ENABLE_SHAREPOINT itself may have come from azd.
