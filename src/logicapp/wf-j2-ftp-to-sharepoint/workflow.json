@@ -1,0 +1,836 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": "@parameters('j2RecurrenceMinutes')",
+          "timeZone": "Romance Standard Time"
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "runs": 1
+          }
+        }
+      }
+    },
+    "actions": {
+      "Init_CorrelationId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "correlationId",
+              "type": "string",
+              "value": "@{guid()}"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Init_StartedAt": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "startedAt",
+              "type": "string",
+              "value": "@{utcNow()}"
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_CorrelationId": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_Files": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "files",
+              "type": "array",
+              "value": []
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_StartedAt": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesDelivered": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesDelivered",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_Files": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesSkipped": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesSkipped",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesDelivered": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_FilesFailed": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "filesFailed",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesSkipped": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Init_ArchiveAllowed": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "archiveAllowed",
+              "type": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "runAfter": {
+          "Init_FilesFailed": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Try": {
+        "type": "Scope",
+        "actions": {
+          "List_source_files": {
+            "type": "ServiceProvider",
+            "inputs": {
+              "parameters": {
+                "folderPath": "@parameters('j2SourceFolder')"
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "ftpPartnerA",
+                "operationId": "listFilesInFolder",
+                "serviceProviderId": "/serviceProviders/Ftp"
+              }
+            },
+            "runAfter": {},
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 4,
+              "interval": "PT15S",
+              "maximumInterval": "PT5M"
+            }
+          },
+          "Filter_supported_files": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('List_source_files')",
+              "where": "@and(not(item()?['isFolder']), or(endsWith(toLower(item()?['name']), '.pdf'), endsWith(toLower(item()?['name']), '.docx'), endsWith(toLower(item()?['name']), '.csv')))"
+            },
+            "runAfter": {
+              "List_source_files": [
+                "Succeeded"
+              ]
+            }
+          },
+          "For_each_file": {
+            "type": "Foreach",
+            "foreach": "@body('Filter_supported_files')",
+            "actions": {
+              "Reset_archive_allowed": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "archiveAllowed",
+                  "value": true
+                },
+                "runAfter": {}
+              },
+              "Get_source_content": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "filePath": "@items('For_each_file')?['path']"
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "ftpPartnerA",
+                    "operationId": "getFtpFileContent",
+                    "serviceProviderId": "/serviceProviders/Ftp"
+                  }
+                },
+                "runAfter": {
+                  "Reset_archive_allowed": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "outputs"
+                    ]
+                  }
+                }
+              },
+              "Route_to_target": {
+                "type": "Switch",
+                "expression": "@parameters('j2Target')",
+                "cases": {
+                  "SharePoint": {
+                    "case": "sharepoint",
+                    "actions": {
+                      "Reject_oversized_file": {
+                        "type": "If",
+                        "expression": {
+                          "greater": [
+                            "@items('For_each_file')?['size']",
+                            4194304
+                          ]
+                        },
+                        "actions": {
+                          "Disable_archive": {
+                            "type": "SetVariable",
+                            "inputs": {
+                              "name": "archiveAllowed",
+                              "value": false
+                            },
+                            "runAfter": {}
+                          },
+                          "Count_rejected": {
+                            "type": "IncrementVariable",
+                            "inputs": {
+                              "name": "filesFailed",
+                              "value": 1
+                            },
+                            "runAfter": {
+                              "Disable_archive": [
+                                "Succeeded"
+                              ]
+                            }
+                          },
+                          "Record_rejected": {
+                            "type": "AppendToArrayVariable",
+                            "inputs": {
+                              "name": "files",
+                              "value": {
+                                "name": "@items('For_each_file')?['name']",
+                                "sizeBytes": "@items('For_each_file')?['size']",
+                                "result": "rejected-too-large",
+                                "error": "SharePoint Graph simple upload is limited to 4 MB."
+                              }
+                            },
+                            "runAfter": {
+                              "Count_rejected": [
+                                "Succeeded"
+                              ]
+                            }
+                          }
+                        },
+                        "else": {
+                          "actions": {
+                            "Get_sharepoint_metadata": {
+                              "type": "Http",
+                              "description": "# VERIFY: Confirm the HTTP response exposes drive item size at body.size and statusCode on failures.",
+                              "inputs": {
+                                "method": "GET",
+                                "uri": "@{concat('https://graph.microsoft.com/v1.0/sites/', parameters('j2SharePointSiteId'), '/drive/root:/', parameters('j2Folder'), '/', uriComponent(items('For_each_file')?['name']))}",
+                                "authentication": {
+                                  "type": "ManagedServiceIdentity",
+                                  "audience": "https://graph.microsoft.com"
+                                }
+                              },
+                              "runAfter": {},
+                              "retryPolicy": {
+                                "type": "none"
+                              }
+                            },
+                            "Sharepoint_exists_with_same_size": {
+                              "type": "If",
+                              "expression": {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@actions('Get_sharepoint_metadata')?['status']",
+                                      "Succeeded"
+                                    ]
+                                  },
+                                  {
+                                    "equals": [
+                                      "@body('Get_sharepoint_metadata')?['size']",
+                                      "@items('For_each_file')?['size']"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "actions": {
+                                "Count_sharepoint_skipped": {
+                                  "type": "IncrementVariable",
+                                  "inputs": {
+                                    "name": "filesSkipped",
+                                    "value": 1
+                                  }
+                                },
+                                "Record_sharepoint_skipped": {
+                                  "type": "AppendToArrayVariable",
+                                  "inputs": {
+                                    "name": "files",
+                                    "value": {
+                                      "name": "@items('For_each_file')?['name']",
+                                      "sizeBytes": "@items('For_each_file')?['size']",
+                                      "result": "skipped-duplicate"
+                                    }
+                                  },
+                                  "runAfter": {
+                                    "Count_sharepoint_skipped": [
+                                      "Succeeded"
+                                    ]
+                                  }
+                                }
+                              },
+                              "else": {
+                                "actions": {
+                                  "Sharepoint_lookup_allows_upload": {
+                                    "type": "If",
+                                    "expression": {
+                                      "or": [
+                                        {
+                                          "equals": [
+                                            "@actions('Get_sharepoint_metadata')?['status']",
+                                            "Succeeded"
+                                          ]
+                                        },
+                                        {
+                                          "equals": [
+                                            "@outputs('Get_sharepoint_metadata')?['statusCode']",
+                                            404
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "actions": {
+                                      "Upload_sharepoint_file": {
+                                        "type": "Http",
+                                        "inputs": {
+                                          "method": "PUT",
+                                          "uri": "@{concat('https://graph.microsoft.com/v1.0/sites/', parameters('j2SharePointSiteId'), '/drive/root:/', parameters('j2Folder'), '/', uriComponent(items('For_each_file')?['name']), ':/content')}",
+                                          "headers": {
+                                            "Content-Type": "application/octet-stream"
+                                          },
+                                          "body": "@body('Get_source_content')",
+                                          "authentication": {
+                                            "type": "ManagedServiceIdentity",
+                                            "audience": "https://graph.microsoft.com"
+                                          }
+                                        },
+                                        "runAfter": {},
+                                        "retryPolicy": {
+                                          "type": "exponential",
+                                          "count": 4,
+                                          "interval": "PT15S",
+                                          "maximumInterval": "PT5M"
+                                        },
+                                        "runtimeConfiguration": {
+                                          "secureData": {
+                                            "properties": [
+                                              "inputs"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "Count_sharepoint_delivered": {
+                                        "type": "IncrementVariable",
+                                        "inputs": {
+                                          "name": "filesDelivered",
+                                          "value": 1
+                                        },
+                                        "runAfter": {
+                                          "Upload_sharepoint_file": [
+                                            "Succeeded"
+                                          ]
+                                        }
+                                      },
+                                      "Record_sharepoint_delivered": {
+                                        "type": "AppendToArrayVariable",
+                                        "inputs": {
+                                          "name": "files",
+                                          "value": {
+                                            "name": "@items('For_each_file')?['name']",
+                                            "sizeBytes": "@items('For_each_file')?['size']",
+                                            "result": "delivered"
+                                          }
+                                        },
+                                        "runAfter": {
+                                          "Count_sharepoint_delivered": [
+                                            "Succeeded"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "else": {
+                                      "actions": {
+                                        "Disable_archive_after_lookup_failure": {
+                                          "type": "SetVariable",
+                                          "inputs": {
+                                            "name": "archiveAllowed",
+                                            "value": false
+                                          }
+                                        },
+                                        "Count_lookup_failure": {
+                                          "type": "IncrementVariable",
+                                          "inputs": {
+                                            "name": "filesFailed",
+                                            "value": 1
+                                          },
+                                          "runAfter": {
+                                            "Disable_archive_after_lookup_failure": [
+                                              "Succeeded"
+                                            ]
+                                          }
+                                        },
+                                        "Record_lookup_failure": {
+                                          "type": "AppendToArrayVariable",
+                                          "inputs": {
+                                            "name": "files",
+                                            "value": {
+                                              "name": "@items('For_each_file')?['name']",
+                                              "sizeBytes": "@items('For_each_file')?['size']",
+                                              "result": "sharepoint-lookup-failed",
+                                              "error": "@{concat('Graph metadata lookup failed with HTTP status ', string(outputs('Get_sharepoint_metadata')?['statusCode']))}"
+                                            }
+                                          },
+                                          "runAfter": {
+                                            "Count_lookup_failure": [
+                                              "Succeeded"
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "runAfter": {
+                                "Get_sharepoint_metadata": [
+                                  "Succeeded",
+                                  "Failed"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "runAfter": {}
+                      }
+                    }
+                  }
+                },
+                "default": {
+                  "actions": {
+                    "Check_blob_exists": {
+                      "type": "ServiceProvider",
+                      "description": "# VERIFY: Confirm blobExists returns a Boolean response body.",
+                      "inputs": {
+                        "parameters": {
+                          "blobName": "@{parameters('j2Folder')}/@{items('For_each_file')?['name']}",
+                          "containerName": "sharepoint-sim"
+                        },
+                        "serviceProviderConfiguration": {
+                          "connectionName": "blobReports",
+                          "operationId": "blobExists",
+                          "serviceProviderId": "/serviceProviders/AzureBlob"
+                        }
+                      },
+                      "runAfter": {},
+                      "retryPolicy": {
+                        "type": "exponential",
+                        "count": 4,
+                        "interval": "PT15S",
+                        "maximumInterval": "PT5M"
+                      }
+                    },
+                    "Blob_already_exists": {
+                      "type": "If",
+                      "expression": {
+                        "equals": [
+                          "@body('Check_blob_exists')",
+                          true
+                        ]
+                      },
+                      "actions": {
+                        "Count_blob_skipped": {
+                          "type": "IncrementVariable",
+                          "inputs": {
+                            "name": "filesSkipped",
+                            "value": 1
+                          }
+                        },
+                        "Record_blob_skipped": {
+                          "type": "AppendToArrayVariable",
+                          "inputs": {
+                            "name": "files",
+                            "value": {
+                              "name": "@items('For_each_file')?['name']",
+                              "sizeBytes": "@items('For_each_file')?['size']",
+                              "result": "skipped-duplicate"
+                            }
+                          },
+                          "runAfter": {
+                            "Count_blob_skipped": [
+                              "Succeeded"
+                            ]
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {
+                          "Upload_blob": {
+                            "type": "ServiceProvider",
+                            "inputs": {
+                              "parameters": {
+                                "blobName": "@{parameters('j2Folder')}/@{items('For_each_file')?['name']}",
+                                "containerName": "sharepoint-sim",
+                                "content": "@body('Get_source_content')",
+                                "overrideIfExists": "true"
+                              },
+                              "serviceProviderConfiguration": {
+                                "connectionName": "blobReports",
+                                "operationId": "uploadBlob",
+                                "serviceProviderId": "/serviceProviders/AzureBlob"
+                              }
+                            },
+                            "runAfter": {},
+                            "retryPolicy": {
+                              "type": "exponential",
+                              "count": 4,
+                              "interval": "PT15S",
+                              "maximumInterval": "PT5M"
+                            },
+                            "runtimeConfiguration": {
+                              "secureData": {
+                                "properties": [
+                                  "inputs"
+                                ]
+                              }
+                            }
+                          },
+                          "Count_blob_delivered": {
+                            "type": "IncrementVariable",
+                            "inputs": {
+                              "name": "filesDelivered",
+                              "value": 1
+                            },
+                            "runAfter": {
+                              "Upload_blob": [
+                                "Succeeded"
+                              ]
+                            }
+                          },
+                          "Record_blob_delivered": {
+                            "type": "AppendToArrayVariable",
+                            "inputs": {
+                              "name": "files",
+                              "value": {
+                                "name": "@items('For_each_file')?['name']",
+                                "sizeBytes": "@items('For_each_file')?['size']",
+                                "result": "delivered"
+                              }
+                            },
+                            "runAfter": {
+                              "Count_blob_delivered": [
+                                "Succeeded"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "runAfter": {
+                        "Check_blob_exists": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_source_content": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Track_file": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J2",
+                  "pattern": "P0",
+                  "fileName": "@items('For_each_file')?['name']",
+                  "target": "@parameters('j2Target')",
+                  "outcome": "@last(variables('files'))?['result']"
+                },
+                "runAfter": {
+                  "Route_to_target": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "fileName": "@{action()?['inputs']?['fileName']}",
+                  "target": "@{action()?['inputs']?['target']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}"
+                }
+              },
+              "Archive_allowed_source": {
+                "type": "If",
+                "expression": {
+                  "equals": [
+                    "@variables('archiveAllowed')",
+                    true
+                  ]
+                },
+                "actions": {
+                  "Archive_source": {
+                    "type": "ServiceProvider",
+                    "inputs": {
+                      "parameters": {
+                        "filePath": "@{parameters('j2ArchiveFolder')}/@{formatDateTime(utcNow(), 'yyyyMMdd-HHmmss')}_@{items('For_each_file')?['name']}",
+                        "fileContent": "@body('Get_source_content')"
+                      },
+                      "serviceProviderConfiguration": {
+                        "connectionName": "ftpPartnerA",
+                        "operationId": "createFile",
+                        "serviceProviderId": "/serviceProviders/Ftp"
+                      }
+                    },
+                    "runAfter": {},
+                    "retryPolicy": {
+                      "type": "exponential",
+                      "count": 4,
+                      "interval": "PT15S",
+                      "maximumInterval": "PT5M"
+                    },
+                    "runtimeConfiguration": {
+                      "secureData": {
+                        "properties": [
+                          "inputs"
+                        ]
+                      }
+                    }
+                  },
+                  "Delete_source": {
+                    "type": "ServiceProvider",
+                    "inputs": {
+                      "parameters": {
+                        "filePath": "@items('For_each_file')?['path']",
+                        "skipIfFileNotPresent": true
+                      },
+                      "serviceProviderConfiguration": {
+                        "connectionName": "ftpPartnerA",
+                        "operationId": "deleteFtpFile",
+                        "serviceProviderId": "/serviceProviders/Ftp"
+                      }
+                    },
+                    "runAfter": {
+                      "Archive_source": [
+                        "Succeeded"
+                      ]
+                    },
+                    "retryPolicy": {
+                      "type": "exponential",
+                      "count": 4,
+                      "interval": "PT15S",
+                      "maximumInterval": "PT5M"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Track_file": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            },
+            "runAfter": {
+              "Filter_supported_files": [
+                "Succeeded"
+              ]
+            },
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 1
+              }
+            }
+          },
+          "Compose_summary": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "job": "J2",
+              "filesProcessed": "@variables('filesDelivered')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "filesFailed": "@variables('filesFailed')",
+              "files": "@variables('files')",
+              "pattern": "P0",
+              "outcome": "@if(greater(variables('filesFailed'), 0), 'PartialFailure', 'Succeeded')"
+            },
+            "runAfter": {
+              "For_each_file": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['job']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}"
+            }
+          }
+        },
+        "runAfter": {
+          "Init_ArchiveAllowed": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Scope_Catch": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "actions": {
+          "Filter_failed_actions": {
+            "type": "Query",
+            "inputs": {
+              "from": "@result('Scope_Try')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "Report_failure": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J2",
+                "pattern": "P0",
+                "outcome": "Failed",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": "@variables('filesDelivered')",
+                "filesSkipped": "@variables('filesSkipped')",
+                "filesFailed": "@add(variables('filesFailed'), 1)",
+                "errors": "@body('Filter_failed_actions')"
+              }
+            },
+            "runAfter": {
+              "Filter_failed_actions": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Terminate_failed": {
+            "type": "Terminate",
+            "runAfter": {
+              "Report_failure": [
+                "Succeeded",
+                "Failed"
+              ]
+            },
+            "inputs": {
+              "runStatus": "Failed",
+              "runError": {
+                "code": "J2_FAILED",
+                "message": "@{first(body('Filter_failed_actions'))?['name']}: @{first(body('Filter_failed_actions'))?['error']?['message']}"
+              }
+            }
+          }
+        }
+      },
+      "Scope_Finally": {
+        "type": "Scope",
+        "runAfter": {
+          "Scope_Try": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "Report_success": {
+            "type": "Workflow",
+            "inputs": {
+              "host": {
+                "workflow": {
+                  "id": "wf-child-run-report"
+                }
+              },
+              "body": {
+                "correlationId": "@variables('correlationId')",
+                "job": "J2",
+                "pattern": "P0",
+                "outcome": "@if(greater(variables('filesFailed'), 0), 'PartialFailure', 'Succeeded')",
+                "startedAt": "@variables('startedAt')",
+                "finishedAt": "@utcNow()",
+                "filesProcessed": "@variables('filesDelivered')",
+                "filesSkipped": "@variables('filesSkipped')",
+                "filesFailed": "@variables('filesFailed')",
+                "errors": "@if(greater(variables('filesFailed'), 0), variables('files'), json('[]'))",
+                "details": "@outputs('Compose_summary')"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {},
+    "parameters": {}
+  },
+  "kind": "Stateful"
+}
