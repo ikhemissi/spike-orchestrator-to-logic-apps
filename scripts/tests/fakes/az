@@ -93,7 +93,10 @@ elif args[:3] == ["keyvault", "secret", "show"]:
     elif option("--version"):
         emit(state["secret_versions"].get(option("--version"), ""))
     elif query == "value":
-        emit(state["secret_value"])
+        if option("--name") == "sftp-partner-b-private-key":
+            emit("fixture-private-key")
+        else:
+            emit(state["secret_value"])
     else:
         emit("")
 elif args[:3] == ["keyvault", "secret", "set"]:
@@ -148,6 +151,8 @@ elif args[:2] == ["rest", "--method"] and option("--method") == "patch":
     credential = body.get("properties", {}).get("credential")
     state["worker_credential"] = credential.get("name") if credential else None
     save_state()
+elif args[:3] == ["vm", "run-command", "invoke"] and "NAS_RESET_COMPLETE" in option("--scripts", ""):
+    emit(os.environ.get("AZ_TEST_NAS_RESET_OUTPUT", "NAS_RESET_COMPLETE"))
 elif args[:3] == ["vm", "run-command", "invoke"] and "'SEEDED'" in option("--scripts", ""):
     # The seed script checks that the remote script reached its end.
     emit("SEEDED")

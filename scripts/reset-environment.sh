@@ -31,6 +31,10 @@ if [[ -z "${PARTNER_FTP_PORT:-}" ]] && command -v azd >/dev/null; then
   load_azd_values PARTNER_FTP_PORT
 fi
 PARTNER_FTP_PORT=${PARTNER_FTP_PORT:-2121}
+if [[ -z "${PARTNER_SFTP_PORT:-}" ]] && command -v azd >/dev/null; then
+  load_azd_values PARTNER_SFTP_PORT
+fi
+PARTNER_SFTP_PORT=${PARTNER_SFTP_PORT:-2222}
 
 # Restore FTP access and the partner VM before trying to clean up the FTP folders.
 bash "$(dirname "$0")/inject-fault.sh" restore-all >/dev/null
@@ -72,10 +76,38 @@ empty_ftp_directory() {
 
 for directory in j1 j2 j4 archive; do empty_ftp_directory "$directory"; done
 
-# VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.
-nas_reset_script="\$share = '${NAS_SHARE_UNC//\'/\'\'}'; @('j3','j4','folderwatch') | ForEach-Object { \$path = Join-Path \$share \$_; if (Test-Path \$path) { Remove-Item -Recurse -Force \$path } }; @('j3\\in','j3\\out','j3\\archive','j4\\finance','j4\\documents','j4\\integration','j4\\quarantine','folderwatch\\in','folderwatch\\out') | ForEach-Object { New-Item -ItemType Directory -Force -Path (Join-Path \$share \$_) | Out-Null }"
-az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-  --name "$NAS_VM_NAME" --command-id RunPowerShellScript --scripts "$nas_reset_script" --output none
+key_file=$(mktemp)
+chmod 600 "$key_file"
+trap 'rm -f -- "$key_file"' EXIT
+az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name sftp-partner-b-private-key \
+  --subscription "$AZURE_SUBSCRIPTION_ID" --query value --output tsv >"$key_file"
+[[ -s "$key_file" ]] || { echo "Key Vault returned an empty SFTP private key" >&2; exit 1; }
+
+sftp_url="sftp://$PARTNER_VM_FQDN:$PARTNER_SFTP_PORT/inbound/"
+sftp_curl() {
+  # The simulated partner's SSH host key is not pinned.
+  curl --insecure --key "$key_file" --user 'partner-b:' --fail --silent --show-error "$@"
+}
+listing=$(sftp_curl --list-only "$sftp_url")
+while IFS= read -r filename; do
+  filename=${filename%$'\r'}
+  [[ -n "$filename" && "$filename" != . && "$filename" != .. ]] || continue
+  [[ "$filename" =~ ^[A-Za-z0-9._~-]+$ ]] || { echo "Unsafe SFTP filename: $filename" >&2; exit 1; }
+  # VERIFY: confirm the SFTP server accepts absolute rm paths and --list-only returns file names.
+  sftp_curl --quote "rm /inbound/$filename" "sftp://$PARTNER_VM_FQDN:$PARTNER_SFTP_PORT/"
+done <<<"$listing"
+
+# VERIFY: confirm the NAS VM supports RunPowerShellScript and the share name resolves to its local folder.
+share_name=${NAS_SHARE_UNC##*\\}
+share_name=${share_name//\'/\'\'}
+nas_reset_script="\$ErrorActionPreference = 'Stop'; \$share = (Get-SmbShare -Name '$share_name').Path; if (-not \$share) { throw 'NAS share path was not found' }; @('j3\\in','j3\\out','j3\\archive','j4\\finance','j4\\documents','j4\\integration','j4\\quarantine','folderwatch\\in','folderwatch\\processed') | ForEach-Object { \$path = Join-Path \$share \$_; Get-ChildItem -LiteralPath \$path -Force | Remove-Item -Recurse -Force }; 'NAS_RESET_COMPLETE'"
+nas_output=$(az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
+  --name "$NAS_VM_NAME" --command-id RunPowerShellScript --scripts "$nas_reset_script" \
+  --query 'value[0].message' --output tsv)
+if [[ "$nas_output" != *NAS_RESET_COMPLETE* ]]; then
+  echo "Resetting the NAS failed: $nas_output" >&2
+  exit 1
+fi
 
 for container in sharepoint-sim run-reports; do
   # VERIFY: the deployer identity has Storage Blob Data Contributor on the test data account.

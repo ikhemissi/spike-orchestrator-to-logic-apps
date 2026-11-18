@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import stat
 import sys
 
 
@@ -19,9 +20,19 @@ log_path = os.environ.get("CURL_TEST_LOG")
 if log_path:
     with open(log_path, "a", encoding="utf-8") as log_file:
         entry = {"args": args}
+        if "--key" in args:
+            key_path = args[args.index("--key") + 1]
+            entry["key_path"] = key_path
+            entry["key_mode"] = f"{stat.S_IMODE(os.stat(key_path).st_mode):04o}"
+            with open(key_path, encoding="utf-8") as key_file:
+                entry["key_matches_fixture"] = key_file.read() == "fixture-private-key\n"
         if "-T" in args:
             with open(args[args.index("-T") + 1], "rb") as source_file:
                 entry["sha256"] = hashlib.sha256(source_file.read()).hexdigest()
         log_file.write(json.dumps(entry) + "\n")
 if "--list-only" in args:
-    print(os.environ.get("CURL_TEST_LISTING", "sample.txt"))
+    is_sftp = any(argument.startswith("sftp://") for argument in args)
+    if is_sftp:
+        print(os.environ.get("CURL_SFTP_TEST_LISTING", "sample.txt\nsample.txt.partial"))
+    else:
+        print(os.environ.get("CURL_TEST_LISTING", "sample.txt"))

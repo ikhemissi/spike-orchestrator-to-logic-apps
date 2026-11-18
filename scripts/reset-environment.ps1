@@ -143,6 +143,75 @@ function Clear-FtpDirectory {
     }
 }
 
+function Invoke-SftpCleanup {
+    param(
+        [Parameter(Mandatory)][string]$Fqdn,
+        [Parameter(Mandatory)][string]$SftpPort,
+        [Parameter(Mandatory)][string]$KeyVault,
+        [Parameter(Mandatory)][string]$Subscription
+    )
+
+    $privateKey = Invoke-AzCli -Arguments @(
+        'keyvault', 'secret', 'show', '--vault-name', $KeyVault, '--name', 'sftp-partner-b-private-key',
+        '--subscription', $Subscription, '--query', 'value', '--output', 'tsv'
+    )
+    if (-not $privateKey) {
+        throw 'Key Vault returned an empty SFTP private key'
+    }
+
+    $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
+    $keyPath = Join-Path $temporaryDirectory 'sftp-key'
+    $null = New-Item -ItemType Directory -Path $temporaryDirectory
+    try {
+        if ($IsWindows) {
+            $acl = Get-Acl -Path $temporaryDirectory
+            $acl.SetAccessRuleProtection($true, $false)
+            foreach ($accessRule in @($acl.Access)) {
+                $acl.RemoveAccessRuleAll($accessRule)
+            }
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+            $privateRule = [Security.AccessControl.FileSystemAccessRule]::new(
+                $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'
+            )
+            $acl.AddAccessRule($privateRule)
+            Set-Acl -Path $temporaryDirectory -AclObject $acl
+        }
+        else {
+            [IO.File]::SetUnixFileMode(
+                $temporaryDirectory,
+                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute
+            )
+        }
+        [IO.File]::WriteAllText($keyPath, (@($privateKey) -join [Environment]::NewLine))
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($keyPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+        }
+        $url = "sftp://$Fqdn`:$SftpPort/inbound/"
+        # The simulated partner's SSH host key is not pinned.
+        $listing = Invoke-Curl -Arguments @(
+            '--insecure', '--key', $keyPath, '--user', 'partner-b:', '--fail', '--silent', '--show-error',
+            '--list-only', $url
+        )
+        foreach ($entry in $listing) {
+            $filename = "$entry".Trim()
+            if (-not $filename -or $filename -in '.', '..') {
+                continue
+            }
+            if ($filename -notmatch '^[A-Za-z0-9._~-]+$') {
+                throw 'Unsafe SFTP filename in /inbound'
+            }
+            # VERIFY: confirm the SFTP server accepts absolute rm paths and --list-only returns file names.
+            $null = Invoke-Curl -Arguments @(
+                '--insecure', '--key', $keyPath, '--user', 'partner-b:', '--fail', '--silent', '--show-error',
+                '--quote', "rm /inbound/$filename", "sftp://$Fqdn`:$SftpPort/"
+            )
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-ResetEnvironment {
     Invoke-RestoreAllFault
     $resourceGroup = Get-Setting AZURE_RESOURCE_GROUP
@@ -150,6 +219,7 @@ function Invoke-ResetEnvironment {
     $keyVault = Get-Setting KEY_VAULT_NAME
     $fqdn = Get-Setting PARTNER_VM_FQDN
     $ftpPort = Get-OptionalSetting PARTNER_FTP_PORT -DefaultValue '2121'
+    $sftpPort = Get-OptionalSetting PARTNER_SFTP_PORT -DefaultValue '2222'
     $nasVmName = Get-Setting NAS_VM_NAME
     $nasShare = Get-Setting NAS_SHARE_UNC
     $storageAccount = Get-Setting DATA_STORAGE_ACCOUNT_NAME
@@ -171,13 +241,20 @@ function Invoke-ResetEnvironment {
         $ftpCredential.Dispose()
     }
 
-    $shareLiteral = "'" + $nasShare.Replace("'", "''") + "'"
-    # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.
-    $remoteScript = "`$share = $shareLiteral; @('j3','j4','folderwatch') | ForEach-Object { `$path = Join-Path `$share `$_; if (Test-Path `$path) { Remove-Item -Recurse -Force `$path } }; @('j3\in','j3\out','j3\archive','j4\finance','j4\documents','j4\integration','j4\quarantine','folderwatch\in','folderwatch\out') | ForEach-Object { New-Item -ItemType Directory -Force -Path (Join-Path `$share `$_) | Out-Null }"
-    $null = Invoke-AzCli -Arguments @(
+    Invoke-SftpCleanup -Fqdn $fqdn -SftpPort $sftpPort -KeyVault $keyVault -Subscription $subscription
+
+    # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share name resolves to its local folder.
+    $shareName = ($nasShare -split '\\')[-1]
+    $shareNameLiteral = "'" + $shareName.Replace("'", "''") + "'"
+    $remoteScript = "`$ErrorActionPreference = 'Stop'; `$share = (Get-SmbShare -Name $shareNameLiteral).Path; if (-not `$share) { throw 'NAS share path was not found' }; @('j3\in','j3\out','j3\archive','j4\finance','j4\documents','j4\integration','j4\quarantine','folderwatch\in','folderwatch\processed') | ForEach-Object { `$path = Join-Path `$share `$_; Get-ChildItem -LiteralPath `$path -Force | Remove-Item -Recurse -Force }; 'NAS_RESET_COMPLETE'"
+    $nasOutput = Invoke-AzCli -Arguments @(
         'vm', 'run-command', 'invoke', '--resource-group', $resourceGroup, '--subscription', $subscription,
-        '--name', $nasVmName, '--command-id', 'RunPowerShellScript', '--scripts', $remoteScript, '--output', 'none'
+        '--name', $nasVmName, '--command-id', 'RunPowerShellScript', '--scripts', $remoteScript,
+        '--query', 'value[0].message', '--output', 'tsv'
     )
+    if ("$nasOutput" -notlike '*NAS_RESET_COMPLETE*') {
+        throw "Resetting the NAS failed: $nasOutput"
+    }
     foreach ($container in 'sharepoint-sim', 'run-reports') {
         # VERIFY: the deployer identity has Storage Blob Data Contributor on the test data account.
         $null = Invoke-AzCli -Arguments @(
