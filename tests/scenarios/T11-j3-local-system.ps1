@@ -24,7 +24,7 @@ function Assert {
     }
     $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
     $reportJson = ConvertTo-Json -InputObject $report -Depth 100 -Compress
-    if ($reportJson -notmatch '(?i)access denied') {
+    if ($reportJson -notmatch 'ACCESS_DENIED') {
         throw 'J3 Local System run did not report access denied.'
     }
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null

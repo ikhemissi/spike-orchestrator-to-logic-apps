@@ -421,7 +421,13 @@
                     "filesProcessed": "@variables('filesProcessed')",
                     "filesSkipped": "@variables('filesSkipped')",
                     "filesFailed": "@variables('filesFailed')",
-                    "errors": [],
+                    "errors": [
+                      {
+                        "code": "HYBRID_JOB_TIMEOUT",
+                        "message": "@{concat('No hybrid worker finished the Automation job within ', parameters('j3PollTimeout'), '; last status ', variables('jobStatus'), '.')}",
+                        "file": null
+                      }
+                    ],
                     "details": {
                       "automationJobId": "@variables('automationJobId')",
                       "lastStatus": "@variables('jobStatus')"

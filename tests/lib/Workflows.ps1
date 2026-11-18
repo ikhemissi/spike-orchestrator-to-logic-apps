@@ -74,13 +74,25 @@ function Invoke-WorkflowManagementRequest {
         [Parameter(Mandatory)][string]$Url
     )
 
-    $response = Invoke-AzCommand -Arguments @(
-        'rest',
-        '--method', $Method,
-        '--url', $Url,
-        '--headers', 'Content-Type=application/json',
-        '--output', 'json'
-    )
+    # After an app restart (a fault that changes a setting) the runtime answers 503 for a while: retry.
+    foreach ($attempt in 1..12) {
+        try {
+            $response = Invoke-AzCommand -Arguments @(
+                'rest',
+                '--method', $Method,
+                '--url', $Url,
+                '--headers', 'Content-Type=application/json',
+                '--output', 'json'
+            )
+            break
+        }
+        catch {
+            if ($attempt -eq 12 -or $_.Exception.Message -notmatch 'ServiceUnavailable') {
+                throw
+            }
+            Start-Sleep -Seconds 15
+        }
+    }
     $json = ($response -join "`n").Trim()
     if ([string]::IsNullOrWhiteSpace($json)) {
         return $null
@@ -143,20 +155,8 @@ function Start-Workflow {
     if (-not $PSCmdlet.ShouldProcess($WorkflowName, "Trigger '$TriggerName'")) {
         return
     }
-    # After an app restart (a fault that changes a setting) the runtime answers 503 for a while: retry the trigger.
-    foreach ($attempt in 1..12) {
-        try {
-            $triggeredAtUtc = [datetime]::UtcNow
-            Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
-            break
-        }
-        catch {
-            if ($attempt -eq 12 -or $_.Exception.Message -notmatch 'ServiceUnavailable') {
-                throw
-            }
-            Start-Sleep -Seconds 15
-        }
-    }
+    $triggeredAtUtc = [datetime]::UtcNow
+    Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
 
     $clock = [Diagnostics.Stopwatch]::StartNew()
     do {

@@ -182,7 +182,7 @@ function Invoke-NasBlock {
         'network', 'nsg', 'rule', 'create', '--resource-group', $resourceGroup,
         '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'fault-nas-block',
         '--priority', "$priority", '--direction', 'Inbound', '--access', 'Deny', '--protocol', 'Tcp',
-        '--source-address-prefixes', "$subnetPrefix", '--source-port-ranges', '*',
+        '--source-address-prefixes', "$subnetPrefix",
         '--destination-address-prefixes', "$nasIp/32", '--destination-port-ranges', '445', '--output', 'none'
     )
 }
