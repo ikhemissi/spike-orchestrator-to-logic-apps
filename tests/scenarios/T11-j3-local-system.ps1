@@ -1,5 +1,8 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {
     $script:RestoredRetry = $null
+    $script:FaultRestored = $false
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/reset-environment.ps1') | Out-Null
 }
 
@@ -19,11 +22,13 @@ function Assert {
     if ($Run.Status -ne 'Failed') {
         throw "J3 Local System run ended with '$($Run.Status)' instead of Failed."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch '(?i)access denied') {
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
+    $reportJson = ConvertTo-Json -InputObject $report -Depth 100 -Compress
+    if ($reportJson -notmatch '(?i)access denied') {
         throw 'J3 Local System run did not report access denied.'
     }
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null
+    $script:FaultRestored = $true
     $retry = Start-Workflow -Environment $script:ScenarioEnvironment -WorkflowName (GetWorkflowName)
     $script:RestoredRetry = Wait-WorkflowRun -Environment $script:ScenarioEnvironment -Run $retry
     if ($script:RestoredRetry.Status -ne 'Succeeded') {
@@ -41,5 +46,7 @@ function GetEvidence {
 }
 
 function Restore {
-    & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null
+    if (-not $script:FaultRestored) {
+        & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null
+    }
 }

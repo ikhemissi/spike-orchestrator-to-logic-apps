@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {}
 
 function Seed {
@@ -12,11 +14,11 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J1 duplicate run ended with '$($Run.Status)'."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch '"filesSkipped"\s*:\s*3') {
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J1').Body
+    if ([int]$report.filesSkipped -ne 3) {
         throw 'J1 did not report three skipped duplicate files.'
     }
-    if ($runJson -notmatch '"filesProcessed"\s*:\s*0') {
+    if ([int]$report.filesProcessed -ne 0) {
         throw 'J1 reported new deliveries during the duplicate run.'
     }
     return $true

@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/reset-environment.ps1') | Out-Null
 }
@@ -15,16 +17,7 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J3 correlation-trace run ended with '$($Run.Status)'."
     }
-    $correlationId = $null
-    foreach ($trackedProperties in $Run.TrackedProperties.Values) {
-        if ($trackedProperties.correlationId) {
-            $correlationId = [string]$trackedProperties.correlationId
-            break
-        }
-    }
-    if (-not $correlationId) {
-        throw 'J3 run did not expose a correlationId.'
-    }
+    $correlationId = Get-ScenarioCorrelationId -Run $Run
     # VERIFY: LogicAppWorkflowRuntime and AzureDiagnostics fields follow the workbook query contract.
     $query = @"
 let SelectedCorrelationId = '$correlationId';

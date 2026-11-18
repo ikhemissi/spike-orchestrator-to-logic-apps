@@ -23,7 +23,7 @@ function Assert {
         throw "J1 partner-IP fault ended with '$($Run.Status)' instead of Failed."
     }
     $startedAt = [datetime]::Parse($Run.Run.properties.startTime).ToUniversalTime()
-    $null = Wait-ScenarioAlert -RuleName 'alert-workflow-failed' -NotBefore $startedAt
+    $script:WorkflowFailedAlertObserved = Wait-ScenarioAlertIfEnabled -RuleName 'alert-workflow-failed' -NotBefore $startedAt
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null
     $script:AllowListRestored = $true
     $retry = Start-Workflow -Environment $script:ScenarioEnvironment -WorkflowName (GetWorkflowName)
@@ -39,7 +39,7 @@ function GetEvidence {
 
     $null = $Run
     $retryStatus = if ($script:RestoredRetry) { $script:RestoredRetry.Status } else { 'not run' }
-    return @{ Details = "Workflow-failed alert observed; restored retry status: $retryStatus." }
+    return @{ Details = "Workflow-failed alert observed: $script:WorkflowFailedAlertObserved; restored retry status: $retryStatus." }
 }
 
 function Restore {

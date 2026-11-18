@@ -21,7 +21,7 @@ function Assert {
         throw "J4 NAS-block run ended with '$($Run.Status)' instead of Failed."
     }
     $startedAt = [datetime]::Parse($Run.Run.properties.startTime).ToUniversalTime()
-    $null = Wait-ScenarioAlert -RuleName 'alert-workflow-failed' -NotBefore $startedAt
+    $script:WorkflowFailedAlertObserved = Wait-ScenarioAlertIfEnabled -RuleName 'alert-workflow-failed' -NotBefore $startedAt
     return $true
 }
 
@@ -29,7 +29,7 @@ function GetEvidence {
     param($Run)
 
     $null = $Run
-    return @{ Details = 'Workflow-failed alert observed while the NAS subnet rule was blocked.' }
+    return @{ Details = "Workflow-failed alert observed: $script:WorkflowFailedAlertObserved." }
 }
 
 function Restore {

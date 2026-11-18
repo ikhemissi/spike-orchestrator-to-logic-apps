@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/reset-environment.ps1') | Out-Null
 }
@@ -32,10 +34,7 @@ function Get-RemoteFileSize {
 
 function Get-PartnerBListing {
     $environment = $script:ScenarioEnvironment
-    $port = [Environment]::GetEnvironmentVariable('PARTNER_SFTP_PORT')
-    if (-not $port) {
-        $port = '2222'
-    }
+    $port = $environment.PARTNER_SFTP_PORT
     $key = (Invoke-AzCommand -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $environment.KEY_VAULT_NAME,
         '--name', 'sftp-partner-b-private-key', '--subscription', $environment.AZURE_SUBSCRIPTION_ID,
@@ -63,10 +62,7 @@ function Get-PartnerBListing {
 
 function Get-PartnerAArchiveListing {
     $environment = $script:ScenarioEnvironment
-    $port = [Environment]::GetEnvironmentVariable('PARTNER_FTP_PORT')
-    if (-not $port) {
-        $port = '2121'
-    }
+    $port = $environment.PARTNER_FTP_PORT
     $password = (Invoke-AzCommand -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $environment.KEY_VAULT_NAME,
         '--name', 'ftp-partner-a-password', '--subscription', $environment.AZURE_SUBSCRIPTION_ID,
@@ -79,14 +75,8 @@ function Get-PartnerAArchiveListing {
     $securePassword.MakeReadOnly()
     $credential = [System.Management.Automation.PSCredential]::new('partner-a', $securePassword)
     try {
-        $files = @(Get-PartnerFile -Url "ftp://$($environment.PARTNER_VM_FQDN):$port/outbound/archive/" `
+        return @(Get-PartnerFile -Url "ftp://$($environment.PARTNER_VM_FQDN):$port/outbound/archive/" `
                 -Credential $credential)
-        $sizes = @{}
-        foreach ($fileName in @('invoices_20261124_001.csv', 'invoices_20261124_002.csv', 'large_partner_extract.csv')) {
-            $url = "ftp://$($environment.PARTNER_VM_FQDN):$port/outbound/archive/$fileName"
-            $sizes[$fileName] = Get-RemoteFileSize -Url $url -Credential $credential
-        }
-        return @{ Files = $files; Sizes = $sizes }
     }
     finally {
         $securePassword.Dispose()
@@ -99,21 +89,27 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J1 run ended with '$($Run.Status)'."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch '"filesProcessed"\s*:\s*3') {
+    $runReport = Get-ScenarioRunReport -Run $Run -Job 'J1'
+    $report = $runReport.Body
+    $details = ConvertFrom-ScenarioReportDetail -Report $report
+    if ([int]$report.filesProcessed -ne 3) {
         throw 'J1 did not report three delivered CSV files.'
     }
-    if ($runJson -match '~lock_invoices\.csv') {
+    if (@($details.files | Where-Object { $_.name -like '~lock_*' }).Count -gt 0) {
         throw 'J1 included the locked file in its output.'
-    }
-    if ($runJson -notmatch '"sizeBytes"\s*:\s*\d+') {
-        throw 'J1 output did not include source file sizes.'
     }
     $partnerB = Get-PartnerBListing
     $script:J1PartnerBFiles = @($partnerB.Files)
-    foreach ($fileName in @('invoices_20261124_001.csv', 'invoices_20261124_002.csv', 'large_partner_extract.csv')) {
+    $sourceFiles = @('invoices_20261124_001.csv', 'invoices_20261124_002.csv', 'large_partner_extract.csv')
+    $repositoryRoot = Split-Path -Parent $script:TestRoot
+    foreach ($fileName in $sourceFiles) {
         if ($script:J1PartnerBFiles -notcontains $fileName) {
             throw "J1 did not deliver '$fileName' to partner B."
+        }
+        $sourcePath = Join-Path $repositoryRoot "test-data/j1/$fileName"
+        $sourceSize = (Get-Item -LiteralPath $sourcePath).Length
+        if ($partnerB.Sizes[$fileName] -ne $sourceSize) {
+            throw "J1 delivery size for '$fileName' does not match the source."
         }
     }
     if ($script:J1PartnerBFiles -contains '~lock_invoices.csv') {
@@ -121,14 +117,16 @@ function Assert {
     }
     $partnerA = Get-PartnerAArchiveListing
     $script:J1PartnerAArchiveFiles = @($partnerA.Files)
-    foreach ($fileName in @('invoices_20261124_001.csv', 'invoices_20261124_002.csv', 'large_partner_extract.csv')) {
-        if ($script:J1PartnerAArchiveFiles -notcontains $fileName) {
+    foreach ($fileName in $sourceFiles) {
+        if (-not @($script:J1PartnerAArchiveFiles | Where-Object { $_ -like "*_$fileName" })) {
             throw "J1 did not archive '$fileName' on partner A."
         }
-        if ($partnerA.Sizes[$fileName] -ne $partnerB.Sizes[$fileName]) {
-            throw "J1 delivery size for '$fileName' does not match the archived source."
+        $reportFile = @($details.files | Where-Object { $_.name -eq $fileName } | Select-Object -First 1)
+        if ($reportFile.Count -ne 1 -or [long]$reportFile[0].sizeBytes -ne (Get-Item -LiteralPath (Join-Path $repositoryRoot "test-data/j1/$fileName")).Length) {
+            throw "J1 report did not record the correct source size for '$fileName'."
         }
     }
+    $script:J1Report = $runReport.BlobName
     return $true
 }
 
@@ -141,6 +139,7 @@ function GetEvidence {
             'partner-b/inbound' = $script:J1PartnerBFiles
             'partner-a/archive' = $script:J1PartnerAArchiveFiles
         }
+        Details = "Run report: $script:J1Report"
     }
 }
 

@@ -45,3 +45,88 @@ function Wait-ScenarioAlert {
         Start-Sleep -Milliseconds ([Math]::Min($PollInterval.TotalMilliseconds, ($Timeout - $clock.Elapsed).TotalMilliseconds))
     } while ($true)
 }
+
+function Wait-ScenarioAlertIfEnabled {
+    param(
+        [Parameter(Mandatory)][string]$RuleName,
+        [Parameter(Mandatory)][datetime]$NotBefore
+    )
+
+    if (-not $script:IncludeAlerts) {
+        return $false
+    }
+    return Wait-ScenarioAlert -RuleName $RuleName -NotBefore $NotBefore
+}
+
+function Get-ScenarioCorrelationId {
+    param([Parameter(Mandatory)][object]$Run)
+
+    foreach ($action in $Run.Actions) {
+        $trackedProperties = $action.properties.trackedProperties
+        if ($trackedProperties -is [string]) {
+            try {
+                $trackedProperties = ConvertFrom-Json -InputObject $trackedProperties -AsHashtable -ErrorAction Stop
+            }
+            catch {
+                continue
+            }
+        }
+        if ($trackedProperties.correlationId) {
+            return [string]$trackedProperties.correlationId
+        }
+    }
+    throw "Workflow '$($Run.WorkflowName)' run '$($Run.RunId)' did not expose a tracked correlationId."
+}
+
+function Get-ScenarioRunReport {
+    param(
+        [Parameter(Mandatory)][object]$Run,
+        [Parameter(Mandatory)][string]$Job
+    )
+
+    $correlationId = Get-ScenarioCorrelationId -Run $Run
+    $startedAt = ConvertTo-UtcTime -Value $Run.Run.properties.startTime
+    $reportDates = @(
+        $startedAt.AddDays(-1),
+        $startedAt,
+        $startedAt.AddDays(1)
+    )
+    foreach ($reportDate in $reportDates) {
+        $datePrefix = $reportDate.ToString('yyyy/MM/dd')
+        $blobName = "$Job/$datePrefix/$correlationId.json"
+        $blobNames = @(Get-BlobFile -Environment $script:ScenarioEnvironment `
+                -Container 'run-reports' -Prefix "$Job/$datePrefix/")
+        if ($blobNames -notcontains $blobName) {
+            continue
+        }
+        $bytes = Read-BlobFile -Environment $script:ScenarioEnvironment -Container 'run-reports' -BlobName $blobName
+        $json = [Text.Encoding]::UTF8.GetString($bytes)
+        try {
+            $report = ConvertFrom-Json -InputObject $json -AsHashtable -ErrorAction Stop
+        }
+        catch {
+            throw "Run report '$blobName' contains invalid JSON: $($_.Exception.Message)"
+        }
+        return [pscustomobject]@{
+            BlobName = $blobName
+            CorrelationId = $correlationId
+            Body = $report
+        }
+    }
+    throw "No run report blob found for '$Job' correlationId '$correlationId'."
+}
+
+function ConvertFrom-ScenarioReportDetail {
+    param([Parameter(Mandatory)][object]$Report)
+
+    $details = $Report.details
+    if ($details -is [string] -and $details.TrimStart().StartsWith('{')) {
+        try {
+            return ConvertFrom-Json -InputObject $details -AsHashtable -ErrorAction Stop
+        }
+        catch {
+            throw "Run report details contain invalid JSON: $($_.Exception.Message)"
+        }
+    }
+    return $details
+}

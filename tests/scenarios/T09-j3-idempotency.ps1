@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {}
 
 function Seed {
@@ -12,8 +14,8 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J3 duplicate run ended with '$($Run.Status)'."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch '"filesSkipped"\s*:\s*2') {
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
+    if ([int]$report.filesSkipped -ne 2) {
         throw 'J3 did not report both files as skipped.'
     }
     $outputPath = Join-Path $script:ScenarioEnvironment.NAS_SHARE_UNC 'j3\out'

@@ -8,8 +8,12 @@ function Set-J3WorkflowState {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory)][ValidateSet('enable', 'disable')][string]$State)
 
-    $workflowUrl = Get-WorkflowManagementUrl -Environment $script:ScenarioEnvironment `
-        -WorkflowName 'wf-j3-convert-onprem'
+    $environment = $script:ScenarioEnvironment
+    $subscription = [uri]::EscapeDataString($environment.AZURE_SUBSCRIPTION_ID)
+    $resourceGroup = [uri]::EscapeDataString($environment.AZURE_RESOURCE_GROUP)
+    $logicApp = [uri]::EscapeDataString($environment.LOGIC_APP_NAME)
+    $workflow = [uri]::EscapeDataString('wf-j3-convert-onprem')
+    $workflowUrl = "https://management.azure.com/subscriptions/$subscription/resourceGroups/$resourceGroup/providers/Microsoft.Web/sites/$logicApp/hostruntime/runtime/webhooks/workflow/api/management/workflows/$workflow"
     if (-not $PSCmdlet.ShouldProcess($workflowUrl, "Set workflow state to $State")) {
         return
     }
@@ -27,8 +31,8 @@ function InjectFault {
         $deadlineHours = 1
     }
     Set-J3WorkflowState -State disable
+    $timeout = [timespan]::FromHours([double]$deadlineHours).Add([timespan]::FromMinutes(10))
     try {
-        $timeout = [timespan]::FromHours([double]$deadlineHours).Add([timespan]::FromMinutes(10))
         $script:DeadlineAlertFired = Wait-ScenarioAlert -RuleName 'alert-critical-job-did-not-succeed-by-deadline' `
             -NotBefore $script:AlertStartTime -Timeout $timeout
     }

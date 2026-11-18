@@ -21,12 +21,13 @@ function Assert {
     if ($Run.Status -ne 'Failed') {
         throw "J3 worker-offline run ended with '$($Run.Status)' instead of Failed."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch 'HYBRID_JOB_TIMEOUT') {
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
+    $reportJson = ConvertTo-Json -InputObject $report -Depth 100 -Compress
+    if ($reportJson -notmatch 'HYBRID_JOB_TIMEOUT') {
         throw 'J3 worker-offline run did not report HYBRID_JOB_TIMEOUT.'
     }
     $startedAt = [datetime]::Parse($Run.Run.properties.startTime).ToUniversalTime()
-    $null = Wait-ScenarioAlert -RuleName 'alert-hybrid-job-stuck' -NotBefore $startedAt
+    $script:HybridJobStuckAlertObserved = Wait-ScenarioAlertIfEnabled -RuleName 'alert-hybrid-job-stuck' -NotBefore $startedAt
     return $true
 }
 
@@ -34,7 +35,7 @@ function GetEvidence {
     param($Run)
 
     $null = $Run
-    return @{ Details = 'Hybrid-job-stuck alert observed; the worker is restarted by Restore.' }
+    return @{ Details = "Hybrid-job-stuck alert observed: $script:HybridJobStuckAlertObserved; the worker is restarted by Restore." }
 }
 
 function Restore {

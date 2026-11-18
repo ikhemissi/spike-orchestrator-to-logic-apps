@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/reset-environment.ps1') | Out-Null
 }
@@ -45,9 +47,16 @@ function Assert {
     if ($archiveNames.Count -lt 2) {
         throw 'J3 did not archive both source files.'
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch 'hw01\\svc-azauto') {
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
+    $details = ConvertFrom-ScenarioReportDetail -Report $report
+    if ($details.runAs -ne 'hw01\svc-azauto') {
         throw 'J3 output did not report runAs as hw01\svc-azauto.'
+    }
+    if ($details.worker -notmatch 'hw01|vm-hw01') {
+        throw "J3 report recorded unexpected worker '$($details.worker)'."
+    }
+    if ([int]$report.filesProcessed -ne 2 -or [int]$report.filesFailed -ne 0) {
+        throw 'J3 report did not record two successfully processed files.'
     }
     $script:J3FileListings = @{ 'j3/out' = $outputNames; 'j3/archive' = $archiveNames }
     return $true
@@ -56,8 +65,11 @@ function Assert {
 function GetEvidence {
     param($Run)
 
-    $null = $Run
-    return @{ FileListings = $script:J3FileListings }
+    $report = Get-ScenarioRunReport -Run $Run -Job 'J3'
+    return @{
+        FileListings = $script:J3FileListings
+        Details = "Run report: $($report.BlobName)"
+    }
 }
 
 function Restore {}

@@ -1,3 +1,5 @@
+. (Join-Path $script:TestRoot 'scenarios/AlertHelpers.ps1')
+
 function Reset {
     $script:J2Files = $null
     & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/reset-environment.ps1') | Out-Null
@@ -15,10 +17,15 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J2 run ended with '$($Run.Status)'."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
+    $report = (Get-ScenarioRunReport -Run $Run -Job 'J2').Body
+    $details = ConvertFrom-ScenarioReportDetail -Report $report
+    if ([int]$report.filesProcessed -ne 2) {
+        throw 'J2 report did not record two processed files.'
+    }
+    $reportFileNames = @($details.files | ForEach-Object { $_.name })
     foreach ($fileName in @('participants_salon_2026.csv', 'brochure_export_fr.pdf')) {
-        if ($runJson -notmatch [regex]::Escape($fileName)) {
-            throw "J2 output did not include '$fileName'."
+        if ($reportFileNames -notcontains $fileName) {
+            throw "J2 report did not include '$fileName'."
         }
     }
     if ($script:ScenarioEnvironment.ENABLE_SHAREPOINT -ne 'true') {
@@ -36,11 +43,14 @@ function Assert {
 function GetEvidence {
     param($Run)
 
-    $null = $Run
+    $report = Get-ScenarioRunReport -Run $Run -Job 'J2'
     if ($script:J2Files) {
-        return @{ FileListings = @{ 'sharepoint-sim/partner-a' = $script:J2Files } }
+        return @{
+            FileListings = @{ 'sharepoint-sim/partner-a' = $script:J2Files }
+            Details = "Run report: $($report.BlobName)"
+        }
     }
-    return @{ Details = 'SharePoint output was checked through workflow run evidence.' }
+    return @{ Details = "SharePoint output is verified in run report $($report.BlobName)." }
 }
 
 function Restore {}
