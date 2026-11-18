@@ -366,7 +366,7 @@ function Restore-BadPassword {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $version = Invoke-AzCli -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags.fault-restore-version', '--output', 'tsv'
+        '--name', 'ftp-partner-a-password', '--query', 'tags."fault-restore-version"', '--output', 'tsv'
     )
     if (-not $version -or $version -eq 'None') {
         return
@@ -401,7 +401,7 @@ function Invoke-BadPassword {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $existingRestoreVersion = Invoke-AzCli -Arguments @(
         'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags.fault-restore-version', '--output', 'tsv'
+        '--name', 'ftp-partner-a-password', '--query', 'tags."fault-restore-version"', '--output', 'tsv'
     )
     if ($existingRestoreVersion -and $existingRestoreVersion -ne 'None') {
         throw 'Bad FTP password fault is already active; restore it first'

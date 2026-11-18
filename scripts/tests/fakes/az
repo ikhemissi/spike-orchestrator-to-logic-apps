@@ -88,7 +88,7 @@ elif args[:3] == ["keyvault", "secret", "show"]:
     query = option("--query")
     if query == "id":
         emit(f"/secrets/ftp-partner-a-password/{state['secret_version']}")
-    elif query == "tags.fault-restore-version":
+    elif query == "tags.\"fault-restore-version\"":
         emit(state["secret_restore_version"] or "None")
     elif option("--version"):
         emit(state["secret_versions"].get(option("--version"), ""))
@@ -115,7 +115,7 @@ elif args[:2] == ["vm", "show"]:
     query = option("--query")
     if query == "id":
         emit(f"/subscriptions/test/resourceGroups/test/providers/Microsoft.Compute/virtualMachines/{name}")
-    elif query == "tags.fault-was-running":
+    elif query == "tags.\"fault-was-running\"":
         emit("true" if state["worker_tags"].get(name) else "None")
     else:
         emit(json.dumps({"id": f"/vm/{name}", "tags": {"fault-was-running": "true"} if state["worker_tags"].get(name) else {}}))

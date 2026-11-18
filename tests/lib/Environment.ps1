@@ -57,9 +57,7 @@ $script:TestEnvironmentNames = @(
     'HYBRID_WORKER_GROUP',
     'DATA_STORAGE_ACCOUNT_NAME',
     'LOG_ANALYTICS_WORKSPACE_ID',
-    'ALERT_EMAIL',
-    'DEPLOYER_IP',
-    'ENABLE_SHAREPOINT'
+    'DEPLOYER_IP'
 )
 
 function Get-RequiredTestName {
@@ -119,6 +117,13 @@ function Get-TestEnvironment {
     }
     if (-not $values.ContainsKey('PARTNER_SFTP_PORT')) {
         $values['PARTNER_SFTP_PORT'] = '2222'
+    }
+    # Optional settings, with the defaults of infra/main.tfvars.json.
+    if (-not $values.ContainsKey('ENABLE_SHAREPOINT')) {
+        $values['ENABLE_SHAREPOINT'] = 'false'
+    }
+    if (-not $values.ContainsKey('ALERT_EMAIL')) {
+        $values['ALERT_EMAIL'] = ''
     }
 
     # Checked again: ENABLE_SHAREPOINT itself may have come from azd.

@@ -162,7 +162,7 @@ set_worker_running_state() {
       if [[ "$state" == PowerState/running ]]; then
         local existing_marker
         existing_marker=$(az vm show --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-          --name "$worker" --query tags.fault-was-running --output tsv)
+          --name "$worker" --query 'tags."fault-was-running"' --output tsv)
         [[ -z "$existing_marker" || "$existing_marker" == None ]] || {
           echo "VM $worker already has the fault-was-running tag; refusing to overwrite it" >&2
           return 1
@@ -172,7 +172,7 @@ set_worker_running_state() {
         az vm stop --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" --name "$worker" --output none
       fi
     elif [[ "$(az vm show --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-      --name "$worker" --query tags.fault-was-running --output tsv)" == true ]]; then
+      --name "$worker" --query 'tags."fault-was-running"' --output tsv)" == true ]]; then
       az vm start --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" --name "$worker" --output none
       az tag update --resource-id "$resource_id" --operation Delete --tags fault-was-running --output none
     fi
@@ -243,7 +243,7 @@ set_ftp_password_secret() {
 restore_bad_password() {
   local version password
   version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query tags.fault-restore-version --output tsv)
+    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query 'tags."fault-restore-version"' --output tsv)
   [[ -n "$version" && "$version" != None ]] || return 0
   IFS= read -r password < <(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --version "$version" --query value --output tsv)
@@ -258,7 +258,7 @@ inject_bad_password() {
   local existing_restore_version
   existing_restore_version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password \
-    --query tags.fault-restore-version --output tsv)
+    --query 'tags."fault-restore-version"' --output tsv)
   [[ -z "$existing_restore_version" || "$existing_restore_version" == None ]] || {
     echo "Bad FTP password fault is already active; restore it first" >&2
     return 1

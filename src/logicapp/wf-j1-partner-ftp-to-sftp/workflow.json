@@ -265,7 +265,7 @@
                       "inputs": {
                         "parameters": {
                           "filePath": "@{parameters('j1TargetFolder')}/@{items('For_each_file')?['name']}.partial",
-                          "newFileName": "@items('For_each_file')?['name']"
+                          "newFileName": "@{if(equals(actions('Get_target_metadata')?['status'], 'Succeeded'), concat(items('For_each_file')?['name'], '_', formatDateTime(utcNow(), 'yyyyMMddHHmmss')), items('For_each_file')?['name'])}"
                         },
                         "serviceProviderConfiguration": {
                           "connectionName": "sftpPartnerB",
@@ -304,7 +304,7 @@
                         "value": {
                           "name": "@items('For_each_file')?['name']",
                           "sizeBytes": "@items('For_each_file')?['size']",
-                          "result": "delivered"
+                          "result": "@{if(equals(actions('Get_target_metadata')?['status'], 'Succeeded'), 'conflict', 'delivered')}"
                         }
                       },
                       "runAfter": {
