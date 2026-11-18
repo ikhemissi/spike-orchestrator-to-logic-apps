@@ -496,10 +496,155 @@
                   "type": "none"
                 }
               },
+              "Filter_runbook_json_lines": {
+                "type": "Query",
+                "inputs": {
+                  "from": "@split(string(body('Get_job_output')), decodeUriComponent('%0A'))",
+                  "where": "@startsWith(trim(item()), '{')"
+                },
+                "runAfter": {
+                  "Get_job_output": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "If_runbook_output_missing": {
+                "type": "If",
+                "expression": {
+                  "equals": [
+                    "@length(body('Filter_runbook_json_lines'))",
+                    0
+                  ]
+                },
+                "actions": {
+                  "Set_missing_output_files_failed": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "filesFailed",
+                      "value": 1
+                    },
+                    "runAfter": {}
+                  },
+                  "Set_missing_output_outcome": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "outcome",
+                      "value": "Failed"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_files_failed": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Set_missing_output_error_code": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "errorCode",
+                      "value": "RUNBOOK_REPORTED_FAILURE"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_outcome": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Track_missing_runbook_output": {
+                    "type": "Compose",
+                    "inputs": {
+                      "correlationId": "@variables('correlationId')",
+                      "jobName": "J3",
+                      "pattern": "P3",
+                      "automationJobId": "@variables('automationJobId')",
+                      "filesProcessed": "@variables('filesProcessed')",
+                      "filesSkipped": "@variables('filesSkipped')",
+                      "filesFailed": "@variables('filesFailed')",
+                      "outcome": "@variables('outcome')",
+                      "errorCode": "@variables('errorCode')"
+                    },
+                    "runAfter": {
+                      "Set_missing_output_error_code": [
+                        "Succeeded"
+                      ]
+                    },
+                    "trackedProperties": {
+                      "correlationId": "@{action()?['inputs']?['correlationId']}",
+                      "jobName": "@{action()?['inputs']?['jobName']}",
+                      "pattern": "@{action()?['inputs']?['pattern']}",
+                      "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                      "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                      "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                      "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                      "outcome": "@{action()?['inputs']?['outcome']}",
+                      "errorCode": "@{action()?['inputs']?['errorCode']}"
+                    }
+                  },
+                  "Report_missing_runbook_output": {
+                    "type": "Workflow",
+                    "inputs": {
+                      "host": {
+                        "workflow": {
+                          "id": "wf-child-run-report"
+                        }
+                      },
+                      "body": {
+                        "correlationId": "@variables('correlationId')",
+                        "job": "J3",
+                        "pattern": "P3",
+                        "outcome": "@variables('outcome')",
+                        "startedAt": "@variables('startedAt')",
+                        "finishedAt": "@utcNow()",
+                        "filesProcessed": "@variables('filesProcessed')",
+                        "filesSkipped": "@variables('filesSkipped')",
+                        "filesFailed": "@variables('filesFailed')",
+                        "errors": [
+                          {
+                            "code": "RUNBOOK_REPORTED_FAILURE",
+                            "message": "Azure Automation job output did not contain a JSON result line."
+                          }
+                        ],
+                        "details": {
+                          "automationJobId": "@variables('automationJobId')",
+                          "jobStatus": "@variables('jobStatus')"
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Track_missing_runbook_output": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Terminate_missing_runbook_output": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Failed",
+                      "runError": {
+                        "code": "RUNBOOK_REPORTED_FAILURE",
+                        "message": "Azure Automation job output did not contain a JSON result line."
+                      }
+                    },
+                    "runAfter": {
+                      "Report_missing_runbook_output": [
+                        "Succeeded",
+                        "Failed"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {}
+                },
+                "runAfter": {
+                  "Filter_runbook_json_lines": [
+                    "Succeeded"
+                  ]
+                }
+              },
               "Parse_runbook_output": {
                 "type": "ParseJson",
                 "inputs": {
-                  "content": "@body('Get_job_output')",
+                  "content": "@json(trim(last(body('Filter_runbook_json_lines'))))",
                   "schema": {
                     "type": "object",
                     "required": [
@@ -601,7 +746,7 @@
                   }
                 },
                 "runAfter": {
-                  "Get_job_output": [
+                  "If_runbook_output_missing": [
                     "Succeeded"
                   ]
                 }
