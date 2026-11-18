@@ -21,6 +21,7 @@ Describe 'seed-test-data' {
         $env:AZURE_SUBSCRIPTION_ID = '00000000-0000-0000-0000-000000000000'
         $env:KEY_VAULT_NAME = 'test-vault'
         $env:PARTNER_VM_FQDN = 'partner-a.example.test'
+        $env:PARTNER_FTP_PORT = '2021'
         $env:NAS_VM_NAME = 'nas-test'
         $env:NAS_SHARE_UNC = '\\nas01.corp.local\share'
         $script:CurlCalls.Clear()
@@ -34,7 +35,7 @@ Describe 'seed-test-data' {
         $script:CurlCalls.Count | Should -Be 2
         $script:CurlCalls[0] | Should -Contain '--ftp-pasv'
         $script:CurlCalls[0] | Should -Contain '-T'
-        ($script:CurlCalls[0] -join ' ') | Should -Match 'outbound/j2/'
+        $script:CurlCalls[0][-1] | Should -Be 'ftp://partner-a.example.test:2021/outbound/j2/'
         $script:CurlCalls[0][-1] | Should -Not -Match 'fixture-password'
     }
 
