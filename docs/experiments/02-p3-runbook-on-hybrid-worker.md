@@ -25,4 +25,6 @@ Show that a job started in Azure Automation runs on the hybrid worker in the sim
 
 ## Conclusion
 
-The P3 pattern works without inbound connectivity to the datacenter: the worker polls Automation over HTTPS, and the job runs as a dedicated local account that only has rights on `j3\*`. Still to show: the same through the J3 workflow, the failure cases (T10–T12) and failover (T13).
+The P3 pattern works without inbound connectivity to the datacenter: the worker polls Automation over HTTPS, and the job runs as a dedicated local account that only has rights on `j3\*`. The same through the J3 workflow (2026-11-18, `wf-j3-convert-onprem` started by its Recurrence trigger): the run took 91 s (job created, polled until `Completed`, output line parsed), ended `Succeeded`, and wrote a run report with `filesProcessed 2`, `filesFailed 0` and the runbook's JSON in `details` (`runAs hw01\svc-azauto`, `worker hw01`); the two outputs on the NAS match the expected files and the sources are archived (T08).
+
+Still to show: the failure cases (T10–T12) and failover (T13).
