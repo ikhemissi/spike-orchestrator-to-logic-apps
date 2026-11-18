@@ -5,7 +5,6 @@
     "triggers": {
       "When_file_is_added": {
         "type": "ServiceProvider",
-        "description": "# VERIFY: Confirm the trigger input name, output path/name fields, and polling interval from the FileSystem runtime manifest.",
         "inputs": {
           "parameters": {
             "folderPath": "@parameters('j5WatchFolder')"
@@ -14,15 +13,6 @@
             "connectionName": "fileSystemNas",
             "operationId": "whenFilesAreAdded",
             "serviceProviderId": "/serviceProviders/FileSystem"
-          }
-        },
-        "recurrence": {
-          "frequency": "Minute",
-          "interval": 1
-        },
-        "runtimeConfiguration": {
-          "concurrency": {
-            "runs": 1
           }
         }
       }
