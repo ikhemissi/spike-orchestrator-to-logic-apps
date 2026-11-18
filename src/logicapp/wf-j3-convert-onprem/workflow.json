@@ -421,16 +421,10 @@
                     "filesProcessed": "@variables('filesProcessed')",
                     "filesSkipped": "@variables('filesSkipped')",
                     "filesFailed": "@variables('filesFailed')",
-                    "errors": [
-                      {
-                        "code": "HYBRID_JOB_TIMEOUT",
-                        "message": "Hybrid worker job did not reach a terminal state before the polling limit.",
-                        "automationJobId": "@variables('automationJobId')"
-                      }
-                    ],
+                    "errors": [],
                     "details": {
                       "automationJobId": "@variables('automationJobId')",
-                      "jobStatus": "@variables('jobStatus')"
+                      "lastStatus": "@variables('jobStatus')"
                     }
                   }
                 },
@@ -597,12 +591,7 @@
                         "filesProcessed": "@variables('filesProcessed')",
                         "filesSkipped": "@variables('filesSkipped')",
                         "filesFailed": "@variables('filesFailed')",
-                        "errors": [
-                          {
-                            "code": "RUNBOOK_REPORTED_FAILURE",
-                            "message": "Azure Automation job output did not contain a JSON result line."
-                          }
-                        ],
+                        "errors": [],
                         "details": {
                           "automationJobId": "@variables('automationJobId')",
                           "jobStatus": "@variables('jobStatus')"
@@ -869,7 +858,7 @@
                         "filesSkipped": "@variables('filesSkipped')",
                         "filesFailed": "@variables('filesFailed')",
                         "errors": "@body('Parse_runbook_output')?['errors']",
-                        "details": "@body('Parse_runbook_output')"
+                        "details": "@addProperty(addProperty(body('Parse_runbook_output'), 'automationJobId', variables('automationJobId')), 'jobStatus', variables('jobStatus'))"
                       }
                     },
                     "runAfter": {
@@ -986,7 +975,7 @@
                           "filesSkipped": "@variables('filesSkipped')",
                           "filesFailed": "@variables('filesFailed')",
                           "errors": "@body('Parse_runbook_output')?['errors']",
-                          "details": "@body('Parse_runbook_output')"
+                          "details": "@addProperty(addProperty(body('Parse_runbook_output'), 'automationJobId', variables('automationJobId')), 'jobStatus', variables('jobStatus'))"
                         }
                       },
                       "runAfter": {
@@ -1102,13 +1091,7 @@
                       "filesProcessed": "@variables('filesProcessed')",
                       "filesSkipped": "@variables('filesSkipped')",
                       "filesFailed": "@variables('filesFailed')",
-                      "errors": [
-                        {
-                          "code": "RUNBOOK_REPORTED_FAILURE",
-                          "message": "@{concat('Azure Automation job ended with status ', variables('jobStatus'))}",
-                          "automationJobId": "@variables('automationJobId')"
-                        }
-                      ],
+                      "errors": [],
                       "details": {
                         "automationJobId": "@variables('automationJobId')",
                         "jobStatus": "@variables('jobStatus')"
