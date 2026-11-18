@@ -4,11 +4,15 @@ BeforeAll {
 
 AfterAll {
     Remove-Item Env:RUNNER_TEST_SETTING -ErrorAction SilentlyContinue
+    Remove-Item Env:PARTNER_FTP_PORT -ErrorAction SilentlyContinue
+    Remove-Item Env:PARTNER_SFTP_PORT -ErrorAction SilentlyContinue
 }
 
 Describe 'Get-TestEnvironment' {
     BeforeEach {
         Remove-Item Env:RUNNER_TEST_SETTING -ErrorAction SilentlyContinue
+        Remove-Item Env:PARTNER_FTP_PORT -ErrorAction SilentlyContinue
+        Remove-Item Env:PARTNER_SFTP_PORT -ErrorAction SilentlyContinue
     }
 
     It 'loads a missing value from azd env get-values' {
@@ -52,5 +56,20 @@ Describe 'Get-TestEnvironment' {
         Mock Invoke-AzdGetValue { 'ENABLE_SHAREPOINT="true"' }
 
         { Get-TestEnvironment -RequiredNames @('ENABLE_SHAREPOINT') } | Should -Throw '*SHAREPOINT_SITE_ID*'
+    }
+
+    It 'uses the default partner ports when azd does not provide them' {
+        $script:contractLines = @(
+            $script:TestEnvironmentNames |
+                Where-Object { $_ -notin 'PARTNER_FTP_PORT', 'PARTNER_SFTP_PORT' } |
+                ForEach-Object { "$_=`"value`"" }
+        )
+        $script:contractLines += 'ENABLE_SHAREPOINT="false"'
+        Mock Invoke-AzdGetValue { $script:contractLines }
+
+        $environment = Get-TestEnvironment
+
+        $environment.PARTNER_FTP_PORT | Should -Be '2121'
+        $environment.PARTNER_SFTP_PORT | Should -Be '2222'
     }
 }

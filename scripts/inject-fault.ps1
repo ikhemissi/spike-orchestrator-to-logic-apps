@@ -71,6 +71,9 @@ function Invoke-PartnerNsgRuleUpdate {
 function Invoke-PartnerIpBlock {
     $natAddress = Get-Setting NAT_PUBLIC_IP
     $matchingRules = foreach ($rule in (Get-PartnerNsgRule)) {
+        if ($rule.name -ne 'Allow-FTP-SFTP-From-NAT-And-Deployer') {
+            continue
+        }
         $prefixes = if ($rule.sourceAddressPrefixes) {
             @($rule.sourceAddressPrefixes)
         }
@@ -85,7 +88,7 @@ function Invoke-PartnerIpBlock {
         }
     }
     if (@($matchingRules).Count -ne 1) {
-        throw "Expected exactly one partner NSG rule containing NAT_PUBLIC_IP; found $(@($matchingRules).Count)"
+        throw "Expected exactly one rule named Allow-FTP-SFTP-From-NAT-And-Deployer containing NAT_PUBLIC_IP; found $(@($matchingRules).Count)"
     }
     $match = @($matchingRules)[0]
     $state = @{ description = [string]$match.Rule.description; prefixes = @($match.Prefixes) } | ConvertTo-Json -Compress
@@ -119,8 +122,8 @@ function Invoke-PartnerService {
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
     $vmName = Get-Setting PARTNER_VM_NAME
     if ($Action -eq 'stop') {
-        # VERIFY: partner VM runs Linux with vsftpd; sshd is stopped with it so the partner is unavailable.
-        $script = 'state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
+        # VERIFY: partner VM runs Linux with vsftpd; ssh is stopped with it so the partner is unavailable.
+        $script = 'state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet ssh; then echo ssh >> "$state"; fi; systemctl stop vsftpd ssh'
     }
     else {
         # VERIFY: restore only services that were active before fault injection.

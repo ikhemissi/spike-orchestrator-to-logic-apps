@@ -48,6 +48,10 @@ load_azd_values AZURE_RESOURCE_GROUP AZURE_SUBSCRIPTION_ID KEY_VAULT_NAME PARTNE
 : "${AZURE_RESOURCE_GROUP:?AZURE_RESOURCE_GROUP is required}"
 : "${AZURE_SUBSCRIPTION_ID:?AZURE_SUBSCRIPTION_ID is required}"
 : "${KEY_VAULT_NAME:?KEY_VAULT_NAME is required}"
+if [[ -z "${PARTNER_FTP_PORT:-}" ]] && command -v azd >/dev/null; then
+  load_azd_values PARTNER_FTP_PORT
+fi
+PARTNER_FTP_PORT=${PARTNER_FTP_PORT:-2121}
 
 temporary_directory=$(mktemp -d)
 trap 'rm -rf "$temporary_directory"' EXIT
@@ -110,7 +114,7 @@ seed_ftp() {
   [[ -n "$password" ]] || { echo "Key Vault returned an empty FTP password" >&2; return 1; }
   for file in "$temporary_directory"/*; do
     curl_with_password "$password" --ftp-pasv --fail --silent --show-error \
-      -T "$file" "ftp://$PARTNER_VM_FQDN/outbound/$scenario/"
+      -T "$file" "ftp://$PARTNER_VM_FQDN:$PARTNER_FTP_PORT/outbound/$scenario/"
   done
 }
 

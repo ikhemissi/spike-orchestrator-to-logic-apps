@@ -23,12 +23,14 @@ export LOGIC_APP_NAME=logicapp-test
 export NAS_VM_NAME=nas-test
 export NAS_SHARE_UNC='\\nas01.corp.local\share'
 export DATA_STORAGE_ACCOUNT_NAME=teststorage
+export PARTNER_FTP_PORT=2021
 
 bash "$root/scripts/inject-fault.sh" partner-down >/dev/null
 bash "$root/scripts/inject-fault.sh" bad-ftp-password >/dev/null
 output=$(bash "$root/scripts/reset-environment.sh")
 [[ "$output" == "Environment reset; all injected faults restored." ]]
 grep -q -- '-DELE /outbound/j1/sample.txt' "$CURL_TEST_LOG"
+grep -q 'ftp://partner-a.example.test:2021/' "$CURL_TEST_LOG"
 grep -q -- '-DELE /outbound/archive/sample.txt' "$CURL_TEST_LOG"
 grep -q 'sharepoint-sim' "$AZ_TEST_LOG"
 grep -q 'run-reports' "$AZ_TEST_LOG"
