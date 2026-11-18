@@ -74,7 +74,7 @@ function Invoke-WorkflowManagementRequest {
         [Parameter(Mandatory)][string]$Url
     )
 
-    # After an app restart (a fault that changes a setting) the runtime answers 503 for a while: retry.
+    # After an app restart (a fault that changes a setting) the runtime may answer 503 or time out: retry.
     foreach ($attempt in 1..12) {
         try {
             $response = Invoke-AzCommand -Arguments @(
@@ -87,7 +87,7 @@ function Invoke-WorkflowManagementRequest {
             break
         }
         catch {
-            if ($attempt -eq 12 -or $_.Exception.Message -notmatch 'ServiceUnavailable') {
+            if ($attempt -eq 12 -or $_.Exception.Message -notmatch 'ServiceUnavailable|RequestTimeout') {
                 throw
             }
             Start-Sleep -Seconds 15
@@ -246,6 +246,10 @@ function Wait-WorkflowRun {
         [timespan]$Timeout = ([timespan]::FromMinutes(10)),
         [timespan]$PollInterval = ([timespan]::FromSeconds(5))
     )
+
+    if (-not $PSBoundParameters.ContainsKey('Timeout') -and $Run.WorkflowName -eq 'wf-j4-ftp-sort-to-nas') {
+        $Timeout = [timespan]::FromMinutes(20)
+    }
 
     if ($Timeout -le [timespan]::Zero) {
         throw 'Timeout must be greater than zero.'

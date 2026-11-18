@@ -5,6 +5,28 @@ BeforeAll {
 }
 
 Describe 'Wait-WorkflowRun' {
+    It 'allows J4 runs up to 20 minutes by default' {
+        $environment = @{
+            AZURE_SUBSCRIPTION_ID = 'subscription'
+            AZURE_RESOURCE_GROUP = 'resource-group'
+            LOGIC_APP_NAME = 'logic-app'
+        }
+        $run = [pscustomobject]@{ WorkflowName = 'wf-j4-ftp-sort-to-nas'; TriggerName = 'Recurrence'; RunId = 'run-1' }
+        $script:waitSleepMilliseconds = 0
+        Mock Get-WorkflowRun { return @{ properties = @{ status = 'Running' } } }
+        Mock Start-Sleep {
+            $script:waitSleepMilliseconds = $Milliseconds
+            throw 'stop after observing the timeout interval'
+        }
+
+        {
+            Wait-WorkflowRun -Environment $environment -Run $run -PollInterval ([timespan]::FromDays(1))
+        } | Should -Throw '*stop after observing*'
+
+        ($script:waitSleepMilliseconds -gt 1190000) | Should -BeTrue
+        ($script:waitSleepMilliseconds -le 1200000) | Should -BeTrue
+    }
+
     It 'polls until the workflow run reaches a terminal status and returns action evidence' {
         $script:workflowPollCount = 0
         $environment = @{
@@ -70,6 +92,44 @@ Describe 'Wait-WorkflowRun' {
             $result = Wait-WorkflowRun -Environment $environment -Run $run
             $result.Status | Should -Be $terminalStatus
         }
+    }
+}
+
+Describe 'Invoke-WorkflowManagementRequest' {
+    It 'retries a ServiceUnavailable response after 15 seconds' {
+        $script:managementRequestAttempts = 0
+        Mock Invoke-AzCommand {
+            $script:managementRequestAttempts++
+            if ($script:managementRequestAttempts -eq 1) {
+                throw 'ServiceUnavailable'
+            }
+            return '{"name":"run-1"}'
+        }
+        Mock Start-Sleep {}
+
+        $response = Invoke-WorkflowManagementRequest -Method get -Url 'https://management.example/run'
+
+        $response.name | Should -Be 'run-1'
+        Should -Invoke Invoke-AzCommand -Times 2
+        Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -eq 15 }
+    }
+
+    It 'retries a RequestTimeout response after 15 seconds' {
+        $script:managementRequestAttempts = 0
+        Mock Invoke-AzCommand {
+            $script:managementRequestAttempts++
+            if ($script:managementRequestAttempts -eq 1) {
+                throw 'RequestTimeout'
+            }
+            return '{"name":"run-1"}'
+        }
+        Mock Start-Sleep {}
+
+        $response = Invoke-WorkflowManagementRequest -Method get -Url 'https://management.example/run'
+
+        $response.name | Should -Be 'run-1'
+        Should -Invoke Invoke-AzCommand -Times 2
+        Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -eq 15 }
     }
 }
 
