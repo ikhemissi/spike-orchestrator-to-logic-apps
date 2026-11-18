@@ -320,13 +320,6 @@
                     "Succeeded",
                     "Failed"
                   ]
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J1",
-                  "pattern": "P0",
-                  "fileName": "@{items('For_each_file')?['name']}",
-                  "partner": "partner-b"
                 }
               },
               "Archive_source": {
@@ -343,7 +336,7 @@
                   }
                 },
                 "runAfter": {
-                  "Already_delivered": [
+                  "Track_file": [
                     "Succeeded"
                   ]
                 },
@@ -385,6 +378,30 @@
                   "interval": "PT15S",
                   "maximumInterval": "PT5M"
                 }
+              },
+              "Track_file": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J1",
+                  "pattern": "P0",
+                  "partner": "partner-b",
+                  "fileName": "@items('For_each_file')?['name']",
+                  "outcome": "@last(variables('files'))?['result']"
+                },
+                "runAfter": {
+                  "Already_delivered": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "partner": "@{action()?['inputs']?['partner']}",
+                  "fileName": "@{action()?['inputs']?['fileName']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}"
+                }
               }
             },
             "runAfter": {
@@ -405,7 +422,9 @@
               "job": "J1",
               "filesProcessed": "@variables('filesDelivered')",
               "filesSkipped": "@variables('filesSkipped')",
-              "files": "@variables('files')"
+              "files": "@variables('files')",
+              "pattern": "P0",
+              "outcome": "Succeeded"
             },
             "runAfter": {
               "For_each_file": [
@@ -413,10 +432,12 @@
               ]
             },
             "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J1",
-              "pattern": "P0",
-              "outcome": "Succeeded"
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['job']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}"
             }
           }
         },
