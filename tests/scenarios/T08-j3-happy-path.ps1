@@ -17,14 +17,14 @@ function Assert {
         throw "J3 run ended with '$($Run.Status)'."
     }
     $environment = $script:ScenarioEnvironment
-    $outputPath = Join-Path $environment.NAS_SHARE_UNC 'j3\out'
+    $outputPath = "$($environment.NAS_SHARE_UNC)\j3\out"
     $outputNames = @(Get-NasFile -Environment $environment -Path $outputPath)
     $expectedRoot = Join-Path (Split-Path -Parent $script:TestRoot) 'test-data/j3/expected'
     foreach ($expectedFile in Get-ChildItem -LiteralPath $expectedRoot -Filter '*.json' -File) {
         if ($outputNames -notcontains $expectedFile.Name) {
             throw "J3 did not create '$($expectedFile.Name)'."
         }
-        $actual = Read-NasFile -Environment $environment -Path (Join-Path $outputPath $expectedFile.Name)
+        $actual = Read-NasFile -Environment $environment -Path "$outputPath\$($expectedFile.Name)"
         $expected = [IO.File]::ReadAllBytes($expectedFile.FullName)
         if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$expected, [byte[]]$actual)) {
             throw "J3 output '$($expectedFile.Name)' differs from the checked-in expected file."
@@ -37,12 +37,12 @@ function Assert {
         $sourcePath = Join-Path (Split-Path -Parent $script:TestRoot) "test-data/j3/$sourceName"
         $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
         $actualHash = [Text.Encoding]::UTF8.GetString((Read-NasFile -Environment $environment `
-                    -Path (Join-Path $outputPath $sidecarName))).Trim()
+                    -Path "$outputPath\$sidecarName")).Trim()
         if ($actualHash -ne $sourceHash) {
             throw "J3 sidecar '$sidecarName' does not contain the source SHA-256."
         }
     }
-    $archivePath = Join-Path $environment.NAS_SHARE_UNC 'j3\archive'
+    $archivePath = "$($environment.NAS_SHARE_UNC)\j3\archive"
     $archiveNames = @(Get-NasFile -Environment $environment -Path $archivePath)
     if ($archiveNames.Count -lt 2) {
         throw 'J3 did not archive both source files.'

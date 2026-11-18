@@ -30,7 +30,7 @@ function Assert {
     if ($Run.Status -ne 'Succeeded') {
         throw "J5 run ended with '$($Run.Status)'."
     }
-    $processedPath = Join-Path $script:ScenarioEnvironment.NAS_SHARE_UNC 'folderwatch\processed'
+    $processedPath = "$($script:ScenarioEnvironment.NAS_SHARE_UNC)\folderwatch\processed"
     $files = @(Get-NasFile -Environment $script:ScenarioEnvironment -Path $processedPath)
     if ($files -notcontains 'folderwatch_test.txt') {
         throw 'J5 did not move folderwatch_test.txt to the processed folder.'

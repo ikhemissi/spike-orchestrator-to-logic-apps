@@ -1,6 +1,6 @@
 # Workflow control for the test runner: trigger, poll, read and resubmit runs through the Logic App management API.
 
-$script:LogicAppsManagementApiVersion = '2018-11-01' # VERIFY: confirm the Standard workflow management API version and URL shape.
+$script:LogicAppsManagementApiVersion = '2018-11-01' # Confirmed live (experiment 01, V11).
 
 $script:TerminalRunStatuses = @('Succeeded', 'Failed', 'Cancelled', 'TimedOut', 'Aborted', 'Faulted', 'Skipped', 'Ignored')
 

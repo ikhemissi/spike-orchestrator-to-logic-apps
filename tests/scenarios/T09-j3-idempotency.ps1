@@ -18,7 +18,7 @@ function Assert {
     if ([int]$report.filesSkipped -ne 2) {
         throw 'J3 did not report both files as skipped.'
     }
-    $outputPath = Join-Path $script:ScenarioEnvironment.NAS_SHARE_UNC 'j3\out'
+    $outputPath = "$($script:ScenarioEnvironment.NAS_SHARE_UNC)\j3\out"
     $outputNames = @(Get-NasFile -Environment $script:ScenarioEnvironment -Path $outputPath)
     $jsonFiles = @($outputNames | Where-Object { $_ -like '*.json' -and $_ -notlike '*.json.sha256' })
     if ($jsonFiles.Count -ne 2) {

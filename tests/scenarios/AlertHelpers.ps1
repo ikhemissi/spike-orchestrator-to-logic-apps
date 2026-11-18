@@ -75,6 +75,18 @@ function Get-ScenarioCorrelationId {
             return [string]$trackedProperties.correlationId
         }
     }
+    # The action list omits tracked properties; a single action's GET returns them. The workflows record them on
+    # Compose actions named Track_* or Compose_summary.
+    $trackingActions = @($Run.Actions | Where-Object { $_.name -like 'Track_*' -or $_.name -eq 'Compose_summary' } |
+            Where-Object { $_.properties.status -eq 'Succeeded' })
+    $runUrl = Get-WorkflowManagementUrl -Environment $script:ScenarioEnvironment -WorkflowName $Run.WorkflowName -RunId $Run.RunId
+    foreach ($action in $trackingActions) {
+        $details = Invoke-WorkflowManagementRequest -Method get -Url "$runUrl/actions/$($action.name)?api-version=$script:LogicAppsManagementApiVersion"
+        $correlationId = $details.properties.trackedProperties.correlationId
+        if ($correlationId) {
+            return [string]$correlationId
+        }
+    }
     throw "Workflow '$($Run.WorkflowName)' run '$($Run.RunId)' did not expose a tracked correlationId."
 }
 

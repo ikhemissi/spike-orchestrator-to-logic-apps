@@ -17,10 +17,10 @@ function Assert {
     }
     $environment = $script:ScenarioEnvironment
     $folders = @{
-        'j4/finance' = @(Get-NasFile -Environment $environment -Path (Join-Path $environment.NAS_SHARE_UNC 'j4\finance'))
-        'j4/documents' = @(Get-NasFile -Environment $environment -Path (Join-Path $environment.NAS_SHARE_UNC 'j4\documents'))
-        'j4/integration' = @(Get-NasFile -Environment $environment -Path (Join-Path $environment.NAS_SHARE_UNC 'j4\integration'))
-        'j4/quarantine' = @(Get-NasFile -Environment $environment -Path (Join-Path $environment.NAS_SHARE_UNC 'j4\quarantine'))
+        'j4/finance' = @(Get-NasFile -Environment $environment -Path "$($environment.NAS_SHARE_UNC)\j4\finance")
+        'j4/documents' = @(Get-NasFile -Environment $environment -Path "$($environment.NAS_SHARE_UNC)\j4\documents")
+        'j4/integration' = @(Get-NasFile -Environment $environment -Path "$($environment.NAS_SHARE_UNC)\j4\integration")
+        'j4/quarantine' = @(Get-NasFile -Environment $environment -Path "$($environment.NAS_SHARE_UNC)\j4\quarantine")
     }
     foreach ($expected in @{
             'j4/finance' = 'budget_q4.csv'

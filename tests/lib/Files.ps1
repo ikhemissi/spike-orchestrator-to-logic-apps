@@ -53,7 +53,9 @@ function Get-PartnerFile {
     }
     $arguments += Get-CurlKeyArgument -UserName $UserName -PrivateKeyPath $PrivateKeyPath
     $arguments += $Url
-    return @(Invoke-CurlCommand -Arguments $arguments -Credential $Credential | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    # FTP name listings end their lines with CRLF: trim, so that names compare as names.
+    return @(Invoke-CurlCommand -Arguments $arguments -Credential $Credential |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ })
 }
 
 function Send-PartnerFile {
@@ -145,6 +147,18 @@ function Get-NasCommandResult {
     return $resultLine.Substring('RESULT:'.Length)
 }
 
+# Run command runs on the NAS as Local System, which has no rights on the share: the NAS scripts turn a
+# \\server\share\folder path into the share's local folder before using it.
+$script:NasLocalPathFunction = @'
+function ConvertTo-NasLocalPath([string]$UncPath) {
+    if (-not $UncPath.StartsWith('\\')) { return $UncPath }
+    $parts = $UncPath.TrimStart('\').Split('\', 3)
+    $sharePath = (Get-SmbShare -Name $parts[1] -ErrorAction Stop).Path
+    if ($parts.Count -lt 3) { return $sharePath }
+    return Join-Path $sharePath $parts[2]
+}
+'@
+
 function Get-NasFile {
     param(
         [Parameter(Mandatory)][hashtable]$Environment,
@@ -153,9 +167,12 @@ function Get-NasFile {
 
     $scriptText = @'
 param([string]$Path)
+__NAS_LOCAL_PATH__
+$Path = ConvertTo-NasLocalPath $Path
 $names = @(Get-ChildItem -LiteralPath $Path -File | ForEach-Object { $_.Name }) -join "`n"
 'RESULT:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($names))
 '@
+    $scriptText = $scriptText.Replace('__NAS_LOCAL_PATH__', $script:NasLocalPathFunction)
     $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path")
     $encodedNames = Get-NasCommandResult -Response $response
     $names = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedNames))
@@ -170,8 +187,11 @@ function Read-NasFile {
 
     $scriptText = @'
 param([string]$Path)
+__NAS_LOCAL_PATH__
+$Path = ConvertTo-NasLocalPath $Path
 'RESULT:' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($Path))
 '@
+    $scriptText = $scriptText.Replace('__NAS_LOCAL_PATH__', $script:NasLocalPathFunction)
     $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path")
     return [Convert]::FromBase64String((Get-NasCommandResult -Response $response))
 }
@@ -186,10 +206,13 @@ function Write-NasFile {
 
     $scriptText = @'
 param([string]$Path, [string]$ContentBase64)
+__NAS_LOCAL_PATH__
+$Path = ConvertTo-NasLocalPath $Path
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
 [IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($ContentBase64))
 'RESULT:written'
 '@
+    $scriptText = $scriptText.Replace('__NAS_LOCAL_PATH__', $script:NasLocalPathFunction)
     $contentBase64 = [Convert]::ToBase64String($Content)
     $response = Invoke-NasCommand -Environment $Environment -Script $scriptText -Parameters @("Path=$Path", "ContentBase64=$contentBase64")
     if ((Get-NasCommandResult -Response $response) -ne 'written') {
