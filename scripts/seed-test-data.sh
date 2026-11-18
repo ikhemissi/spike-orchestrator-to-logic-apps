@@ -91,7 +91,7 @@ seed_ftp() {
 }
 
 seed_nas() {
-  local relative_directory file encoded remote_script share file_size
+  local relative_directory file encoded remote_script share_name file_size
   : "${NAS_VM_NAME:?NAS_VM_NAME is required for NAS scenarios}"
   : "${NAS_SHARE_UNC:?NAS_SHARE_UNC is required for NAS scenarios}"
   case "$scenario" in
@@ -99,8 +99,11 @@ seed_nas() {
     j5) relative_directory='folderwatch\in' ;;
     *) return 0 ;;
   esac
-  share=${NAS_SHARE_UNC//\'/\'\'}
-  remote_script="\$share = '$share'; \$files = @("
+  # On the NAS VM itself, run command runs as Local System, which has no rights on the share: write to the share's
+  # local folder instead, found from the share name (the last part of NAS_SHARE_UNC).
+  share_name=${NAS_SHARE_UNC##*\\}
+  share_name=${share_name//\'/\'\'}
+  remote_script="\$ErrorActionPreference = 'Stop'; \$share = (Get-SmbShare -Name '$share_name').Path; \$files = @("
   for file in "${seed_files[@]}"; do
     file_size=$(wc -c <"$file")
     if (( file_size > 262144 )); then
@@ -110,16 +113,22 @@ seed_nas() {
     encoded=$(base64 <"$file" | tr -d '\n')
     remote_script+="@{ Path = '$relative_directory\\$(basename "$file")'; Content = '$encoded' };"
   done
-  remote_script+="); foreach (\$file in \$files) { \$path = Join-Path \$share \$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path \$path) | Out-Null; [IO.File]::WriteAllBytes(\$path, [Convert]::FromBase64String(\$file.Content)) }"
+  remote_script+="); foreach (\$file in \$files) { \$path = Join-Path \$share \$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path \$path) | Out-Null; [IO.File]::WriteAllBytes(\$path, [Convert]::FromBase64String(\$file.Content)) }; 'SEEDED'"
   local script_size
   script_size=$(printf '%s' "$remote_script" | wc -c)
   if (( script_size > 28672 )); then
     echo "NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding ($script_size bytes)" >&2
     return 1
   fi
-  # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.
-  az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-    --name "$NAS_VM_NAME" --command-id RunPowerShellScript --scripts "$remote_script" --output none
+  # Run command reports success even when the script fails: check that the script reached its end.
+  local run_output
+  run_output=$(az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
+    --name "$NAS_VM_NAME" --command-id RunPowerShellScript --scripts "$remote_script" \
+    --query "value[0].message" --output tsv)
+  if [[ "$run_output" != *SEEDED* ]]; then
+    echo "Seeding the NAS failed: $run_output" >&2
+    return 1
+  fi
 }
 
 case "$scenario" in

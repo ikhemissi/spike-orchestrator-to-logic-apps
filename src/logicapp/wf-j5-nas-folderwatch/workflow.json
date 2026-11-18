@@ -3,16 +3,16 @@
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
     "contentVersion": "1.0.0.0",
     "triggers": {
-      "When_file_is_added": {
-        "type": "ServiceProvider",
-        "inputs": {
-          "parameters": {
-            "folderPath": "@parameters('j5WatchFolder')"
-          },
-          "serviceProviderConfiguration": {
-            "connectionName": "fileSystemNas",
-            "operationId": "whenFilesAreAdded",
-            "serviceProviderId": "/serviceProviders/FileSystem"
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": "@parameters('j5RecurrenceMinutes')",
+          "timeZone": "Romance Standard Time"
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "runs": 1
           }
         }
       }
@@ -51,17 +51,15 @@
       "Scope_Try": {
         "type": "Scope",
         "actions": {
-          "Move_to_processed": {
+          "List_watch_folder": {
             "type": "ServiceProvider",
-            "description": "# VERIFY: Confirm FileSystem renameFile accepts a processed-folder path in newName for cross-folder moves.",
             "inputs": {
               "parameters": {
-                "filePath": "@triggerBody()?['path']",
-                "newName": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}"
+                "folderPath": "@parameters('j5WatchFolder')"
               },
               "serviceProviderConfiguration": {
                 "connectionName": "fileSystemNas",
-                "operationId": "renameFile",
+                "operationId": "listFolder",
                 "serviceProviderId": "/serviceProviders/FileSystem"
               }
             },
@@ -73,30 +71,105 @@
               "maximumInterval": "PT5M"
             }
           },
-          "Track_file": {
-            "type": "Compose",
+          "Filter_files": {
+            "type": "Query",
             "inputs": {
-              "correlationId": "@variables('correlationId')",
-              "jobName": "J5",
-              "pattern": "P1",
-              "fileName": "@triggerBody()?['name']",
-              "source": "@triggerBody()?['path']",
-              "target": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}",
-              "outcome": "processed"
+              "from": "@body('List_watch_folder')",
+              "where": "@not(item()?['isFolder'])"
             },
             "runAfter": {
-              "Move_to_processed": [
+              "List_watch_folder": [
+                "Succeeded"
+              ]
+            }
+          },
+          "For_each_file": {
+            "type": "Foreach",
+            "foreach": "@body('Filter_files')",
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 1
+              }
+            },
+            "runAfter": {
+              "Filter_files": [
                 "Succeeded"
               ]
             },
-            "trackedProperties": {
-              "correlationId": "@{action()?['inputs']?['correlationId']}",
-              "jobName": "@{action()?['inputs']?['jobName']}",
-              "pattern": "@{action()?['inputs']?['pattern']}",
-              "fileName": "@{action()?['inputs']?['fileName']}",
-              "source": "@{action()?['inputs']?['source']}",
-              "target": "@{action()?['inputs']?['target']}",
-              "outcome": "@{action()?['inputs']?['outcome']}"
+            "actions": {
+              "Copy_to_processed": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "source": "@{parameters('j5WatchFolder')}\\@{items('For_each_file')?['name']}",
+                    "destination": "@{parameters('j5ProcessedFolder')}\\@{items('For_each_file')?['name']}",
+                    "overwrite": true
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "fileSystemNas",
+                    "operationId": "copyFile",
+                    "serviceProviderId": "/serviceProviders/FileSystem"
+                  }
+                },
+                "runAfter": {},
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                }
+              },
+              "Delete_source": {
+                "type": "ServiceProvider",
+                "inputs": {
+                  "parameters": {
+                    "filePath": "@{parameters('j5WatchFolder')}\\@{items('For_each_file')?['name']}",
+                    "skipIfFileNotPresent": true
+                  },
+                  "serviceProviderConfiguration": {
+                    "connectionName": "fileSystemNas",
+                    "operationId": "deleteFile",
+                    "serviceProviderId": "/serviceProviders/FileSystem"
+                  }
+                },
+                "runAfter": {
+                  "Copy_to_processed": [
+                    "Succeeded"
+                  ]
+                },
+                "retryPolicy": {
+                  "type": "exponential",
+                  "count": 4,
+                  "interval": "PT15S",
+                  "maximumInterval": "PT5M"
+                }
+              },
+              "Track_file": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J5",
+                  "pattern": "P1",
+                  "fileName": "@items('For_each_file')?['name']",
+                  "source": "@items('For_each_file')?['path']",
+                  "target": "@{parameters('j5ProcessedFolder')}\\@{items('For_each_file')?['name']}",
+                  "outcome": "processed"
+                },
+                "runAfter": {
+                  "Delete_source": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "fileName": "@{action()?['inputs']?['fileName']}",
+                  "source": "@{action()?['inputs']?['source']}",
+                  "target": "@{action()?['inputs']?['target']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}"
+                }
+              }
             }
           },
           "Compose_summary": {
@@ -104,15 +177,13 @@
             "inputs": {
               "correlationId": "@variables('correlationId')",
               "job": "J5",
-              "file": "@triggerBody()?['name']",
-              "source": "@triggerBody()?['path']",
-              "target": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}",
-              "filesProcessed": 1,
               "pattern": "P1",
-              "outcome": "Succeeded"
+              "outcome": "Succeeded",
+              "filesProcessed": "@length(body('Filter_files'))",
+              "files": "@body('Filter_files')"
             },
             "runAfter": {
-              "Track_file": [
+              "For_each_file": [
                 "Succeeded"
               ]
             },
@@ -201,28 +272,48 @@
           ]
         },
         "actions": {
-          "Report_success": {
-            "type": "Workflow",
-            "inputs": {
-              "host": {
-                "workflow": {
-                  "id": "wf-child-run-report"
+          "Files_processed": {
+            "type": "If",
+            "expression": {
+              "and": [
+                {
+                  "greater": [
+                    "@length(body('Filter_files'))",
+                    0
+                  ]
                 }
-              },
-              "body": {
-                "correlationId": "@variables('correlationId')",
-                "job": "J5",
-                "pattern": "P1",
-                "outcome": "Succeeded",
-                "startedAt": "@variables('startedAt')",
-                "finishedAt": "@utcNow()",
-                "filesProcessed": 1,
-                "filesSkipped": 0,
-                "filesFailed": 0,
-                "errors": [],
-                "details": "@outputs('Compose_summary')"
+              ]
+            },
+            "actions": {
+              "Report_success": {
+                "type": "Workflow",
+                "inputs": {
+                  "host": {
+                    "workflow": {
+                      "id": "wf-child-run-report"
+                    }
+                  },
+                  "body": {
+                    "correlationId": "@variables('correlationId')",
+                    "job": "J5",
+                    "pattern": "P1",
+                    "outcome": "Succeeded",
+                    "startedAt": "@variables('startedAt')",
+                    "finishedAt": "@utcNow()",
+                    "filesProcessed": 1,
+                    "filesSkipped": 0,
+                    "filesFailed": 0,
+                    "errors": [],
+                    "details": "@outputs('Compose_summary')"
+                  }
+                },
+                "runAfter": {}
               }
-            }
+            },
+            "else": {
+              "actions": {}
+            },
+            "runAfter": {}
           }
         }
       }

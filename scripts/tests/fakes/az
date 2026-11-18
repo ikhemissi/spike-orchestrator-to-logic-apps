@@ -148,6 +148,9 @@ elif args[:2] == ["rest", "--method"] and option("--method") == "patch":
     credential = body.get("properties", {}).get("credential")
     state["worker_credential"] = credential.get("name") if credential else None
     save_state()
+elif args[:3] == ["vm", "run-command", "invoke"] and "'SEEDED'" in option("--scripts", ""):
+    # The seed script checks that the remote script reached its end.
+    emit("SEEDED")
 elif option("--output") == "none":
     pass
 else:
