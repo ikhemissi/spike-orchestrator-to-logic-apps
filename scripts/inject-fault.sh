@@ -67,19 +67,21 @@ inject_partner_ip_block() {
   record=$(python3 -c '
 import base64, json, sys
 nat = sys.argv[1]
+# Azure stores the address with or without its /32 suffix.
+nat_forms = {nat, nat + "/32"}
 matches = []
 for rule in json.load(sys.stdin):
     if rule.get("name") != "Allow-FTP-SFTP-From-NAT-And-Deployer":
         continue
     prefixes = rule.get("sourceAddressPrefixes") or ([rule["sourceAddressPrefix"]] if rule.get("sourceAddressPrefix") else [])
-    if nat in prefixes:
+    if nat_forms & set(prefixes):
         state = {"description": rule.get("description") or "", "prefixes": prefixes}
         encoded = base64.b64encode(json.dumps(state, separators=(",", ":")).encode()).decode()
         matches.append((rule["name"], encoded, prefixes))
 if len(matches) != 1:
     raise SystemExit("Expected exactly one rule named Allow-FTP-SFTP-From-NAT-And-Deployer containing NAT_PUBLIC_IP; found %d" % len(matches))
 name, encoded, prefixes = matches[0]
-remaining = [prefix for prefix in prefixes if prefix != nat]
+remaining = [prefix for prefix in prefixes if prefix not in nat_forms]
 if not remaining:
     remaining = ["0.0.0.0/32"]
 description = "fault-restore:" + encoded
@@ -115,7 +117,7 @@ inject_nas_block() {
   local rules priority subnet_id subnet_prefix nas_ip
   # VERIFY: confirm Logic Apps Standard reports its VNet integration subnet through `az logicapp show`.
   subnet_id=$(az logicapp show --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
-    --name "$LOGIC_APP_NAME" --query properties.virtualNetworkSubnetId --output tsv)
+    --name "$LOGIC_APP_NAME" --query virtualNetworkSubnetId --output tsv)
   [[ -n "$subnet_id" && "$subnet_id" != None ]] || {
     echo "Logic app has no VNet integration subnet" >&2
     return 1

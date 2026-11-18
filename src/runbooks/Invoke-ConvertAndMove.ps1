@@ -194,39 +194,53 @@ $run = @{
     Worker = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [System.Net.Dns]::GetHostName() }
     RunAs = [string](& whoami)
 }
-$sourceDirectory = Resolve-Directory $SourcePath
-$settings = @{
-    ToolPath = Resolve-ToolPath $ToolPath
-    PowerShellPath = Find-PowerShellPath
-    TargetDirectory = Resolve-Directory $TargetPath
-    ArchiveDirectory = Resolve-Directory $ArchivePath
-    SimulateFailure = $SimulateFailure.IsPresent
-}
-$files = @(Get-ChildItem -LiteralPath $sourceDirectory -File -Force | Sort-Object Name | Select-Object -First $MaxFiles)
-Assert-OutputFitsLimit $run $files
+# A fatal error (share not reachable or access denied, tool missing) ends the job Failed, as SPEC section 5.9 says, after
+# writing the single JSON result, so that the workflow can report why.
+try {
+    $sourceDirectory = Resolve-Directory $SourcePath
+    $settings = @{
+        ToolPath = Resolve-ToolPath $ToolPath
+        PowerShellPath = Find-PowerShellPath
+        TargetDirectory = Resolve-Directory $TargetPath
+        ArchiveDirectory = Resolve-Directory $ArchivePath
+        SimulateFailure = $SimulateFailure.IsPresent
+    }
+    $files = @(Get-ChildItem -LiteralPath $sourceDirectory -File -Force | Sort-Object Name | Select-Object -First $MaxFiles)
+    Assert-OutputFitsLimit $run $files
 
-$items = [System.Collections.Generic.List[object]]::new()
-$errors = [System.Collections.Generic.List[object]]::new()
-foreach ($file in $files) {
-    try {
-        $outcome = Invoke-FileStep $settings $file
+    $items = [System.Collections.Generic.List[object]]::new()
+    $errors = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in $files) {
+        try {
+            $outcome = Invoke-FileStep $settings $file
+        }
+        catch [System.UnauthorizedAccessException] {
+            # Access denied on the share is one of the three fatal errors of SPEC section 5.9: the job must end Failed.
+            throw
+        }
+        catch {
+            # Any other error concerns this file only: record it, leave the source in place, and carry on,
+            # so the single JSON result is always written.
+            Write-Verbose -Message "$($file.Name): failed: $($_.Exception.Message)" -Verbose
+            $outcome = ConvertTo-FailedOutcome $file.Name 'FILE_PROCESSING_FAILED' $_.Exception.Message
+        }
+        $items.Add($outcome.Item)
+        if ($outcome.Error) {
+            $errors.Add($outcome.Error)
+        }
     }
-    catch [System.UnauthorizedAccessException] {
-        # Access denied on the share is one of the three fatal errors of SPEC section 5.9: the job must end Failed.
-        throw
-    }
-    catch {
-        # Any other error concerns this file only: record it, leave the source in place, and carry on,
-        # so the single JSON result is always written.
-        Write-Verbose -Message "$($file.Name): failed: $($_.Exception.Message)" -Verbose
-        $outcome = ConvertTo-FailedOutcome $file.Name 'FILE_PROCESSING_FAILED' $_.Exception.Message
-    }
-    $items.Add($outcome.Item)
-    if ($outcome.Error) {
-        $errors.Add($outcome.Error)
-    }
-}
 
-$processedCount = @($items | Where-Object { $_.result -eq 'converted' }).Count
-$skippedCount = @($items | Where-Object { $_.result -eq 'skipped' }).Count
-Write-Output (ConvertTo-ResultJson $run $items.ToArray() $errors.ToArray() $processedCount $skippedCount)
+    $processedCount = @($items | Where-Object { $_.result -eq 'converted' }).Count
+    $skippedCount = @($items | Where-Object { $_.result -eq 'skipped' }).Count
+    Write-Output (ConvertTo-ResultJson $run $items.ToArray() $errors.ToArray() $processedCount $skippedCount)
+}
+catch {
+    $fatalCode = if ($_.Exception -is [System.UnauthorizedAccessException]) { 'ACCESS_DENIED' }
+    elseif ($_.Exception -is [System.Management.Automation.ItemNotFoundException]) { 'PATH_NOT_FOUND' }
+    else { 'FATAL_ERROR' }
+    $fatalError = @{ code = $fatalCode; message = (Limit-MessageLength "$($_.Exception.Message) (running as $($run.RunAs))"); file = $null }
+    $failedResult = ConvertFrom-Json -InputObject (ConvertTo-ResultJson $run @() @($fatalError) 0 0) -AsHashtable
+    $failedResult.status = 'Failed'
+    Write-Output (ConvertTo-Json -InputObject $failedResult -Depth 5 -Compress)
+    throw
+}

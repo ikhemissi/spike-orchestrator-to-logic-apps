@@ -143,8 +143,20 @@ function Start-Workflow {
     if (-not $PSCmdlet.ShouldProcess($WorkflowName, "Trigger '$TriggerName'")) {
         return
     }
-    $triggeredAtUtc = [datetime]::UtcNow
-    Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
+    # After an app restart (a fault that changes a setting) the runtime answers 503 for a while: retry the trigger.
+    foreach ($attempt in 1..12) {
+        try {
+            $triggeredAtUtc = [datetime]::UtcNow
+            Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
+            break
+        }
+        catch {
+            if ($attempt -eq 12 -or $_.Exception.Message -notmatch 'ServiceUnavailable') {
+                throw
+            }
+            Start-Sleep -Seconds 15
+        }
+    }
 
     $clock = [Diagnostics.Stopwatch]::StartNew()
     do {

@@ -1011,13 +1011,52 @@
             },
             "else": {
               "actions": {
+                "Get_failed_job_output": {
+                  "type": "ServiceProvider",
+                  "inputs": {
+                    "parameters": {
+                      "subscriptionId": "@parameters('automationSubscriptionId')",
+                      "resourceGroup": "@parameters('automationResourceGroup')",
+                      "automationAccount": "@parameters('automationAccountName')",
+                      "jobId": "@variables('automationJobId')"
+                    },
+                    "serviceProviderConfiguration": {
+                      "connectionName": "azureAutomation",
+                      "operationId": "getJobOutput",
+                      "serviceProviderId": "/serviceProviders/azureAutomation"
+                    }
+                  },
+                  "runAfter": {},
+                  "retryPolicy": {
+                    "type": "none"
+                  }
+                },
+                "Filter_failed_job_json_lines": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@split(string(body('Get_failed_job_output')), decodeUriComponent('%0A'))",
+                    "where": "@startsWith(trim(item()), '{')"
+                  },
+                  "runAfter": {
+                    "Get_failed_job_output": [
+                      "Succeeded",
+                      "Failed"
+                    ]
+                  }
+                },
                 "Set_terminal_failure_files_failed": {
                   "type": "SetVariable",
                   "inputs": {
                     "name": "filesFailed",
                     "value": 1
                   },
-                  "runAfter": {}
+                  "runAfter": {
+                    "Filter_failed_job_json_lines": [
+                      "Succeeded",
+                      "Failed",
+                      "Skipped"
+                    ]
+                  }
                 },
                 "Set_terminal_failure_outcome": {
                   "type": "SetVariable",
@@ -1091,10 +1130,11 @@
                       "filesProcessed": "@variables('filesProcessed')",
                       "filesSkipped": "@variables('filesSkipped')",
                       "filesFailed": "@variables('filesFailed')",
-                      "errors": [],
+                      "errors": "@if(empty(body('Filter_failed_job_json_lines')), json('[]'), json(trim(last(body('Filter_failed_job_json_lines'))))?['errors'])",
                       "details": {
                         "automationJobId": "@variables('automationJobId')",
-                        "jobStatus": "@variables('jobStatus')"
+                        "jobStatus": "@variables('jobStatus')",
+                        "runbookOutput": "@if(empty(body('Filter_failed_job_json_lines')), null, json(trim(last(body('Filter_failed_job_json_lines')))))"
                       }
                     }
                   },

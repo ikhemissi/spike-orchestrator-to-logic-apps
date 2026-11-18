@@ -65,7 +65,7 @@
   },
   "j3PollTimeout": {
     "type": "String",
-    "value": "PT30M"
+    "value": "PT5M"
   },
   "j3PollCount": {
     "type": "Int",

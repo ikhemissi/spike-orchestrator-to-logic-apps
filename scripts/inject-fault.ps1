@@ -70,6 +70,8 @@ function Invoke-PartnerNsgRuleUpdate {
 
 function Invoke-PartnerIpBlock {
     $natAddress = Get-Setting NAT_PUBLIC_IP
+    # Azure stores the address with or without its /32 suffix.
+    $natForms = @($natAddress, "$natAddress/32")
     $matchingRules = foreach ($rule in (Get-PartnerNsgRule)) {
         if ($rule.name -ne 'Allow-FTP-SFTP-From-NAT-And-Deployer') {
             continue
@@ -83,7 +85,7 @@ function Invoke-PartnerIpBlock {
         else {
             @()
         }
-        if ($prefixes -contains $natAddress) {
+        if (@($prefixes | Where-Object { $_ -in $natForms }).Count -gt 0) {
             [PSCustomObject]@{ Rule = $rule; Prefixes = $prefixes }
         }
     }
@@ -97,7 +99,7 @@ function Invoke-PartnerIpBlock {
     if ($description.Length -gt 140) {
         throw 'Partner NSG rule description is too long to store restore state'
     }
-    $remaining = @($match.Prefixes | Where-Object { $_ -ne $natAddress })
+    $remaining = @($match.Prefixes | Where-Object { $_ -notin $natForms })
     if ($remaining.Count -eq 0) {
         $remaining = @('0.0.0.0/32')
     }
@@ -144,7 +146,7 @@ function Invoke-NasBlock {
     # VERIFY: confirm Logic Apps Standard reports its VNet integration subnet through `az logicapp show`.
     $subnetId = Invoke-AzCli -Arguments @(
         'logicapp', 'show', '--resource-group', $resourceGroup, '--subscription', $subscription,
-        '--name', $logicApp, '--query', 'properties.virtualNetworkSubnetId', '--output', 'tsv'
+        '--name', $logicApp, '--query', 'virtualNetworkSubnetId', '--output', 'tsv'
     )
     if (-not $subnetId -or $subnetId -eq 'None') {
         throw 'Logic app has no VNet integration subnet'
