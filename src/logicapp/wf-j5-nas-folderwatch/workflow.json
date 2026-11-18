@@ -81,13 +81,32 @@
               "count": 4,
               "interval": "PT15S",
               "maximumInterval": "PT5M"
-            },
-            "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
+            }
+          },
+          "Track_file": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
               "jobName": "J5",
               "pattern": "P1",
-              "fileName": "@{triggerBody()?['name']}",
+              "fileName": "@triggerBody()?['name']",
+              "source": "@triggerBody()?['path']",
+              "target": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}",
               "outcome": "processed"
+            },
+            "runAfter": {
+              "Move_to_processed": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['jobName']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "fileName": "@{action()?['inputs']?['fileName']}",
+              "source": "@{action()?['inputs']?['source']}",
+              "target": "@{action()?['inputs']?['target']}",
+              "outcome": "@{action()?['inputs']?['outcome']}"
             }
           },
           "Compose_summary": {
@@ -98,18 +117,21 @@
               "file": "@triggerBody()?['name']",
               "source": "@triggerBody()?['path']",
               "target": "@{parameters('j5ProcessedFolder')}\\@{triggerBody()?['name']}",
-              "filesProcessed": 1
+              "filesProcessed": 1,
+              "pattern": "P1",
+              "outcome": "Succeeded"
             },
             "runAfter": {
-              "Move_to_processed": [
+              "Track_file": [
                 "Succeeded"
               ]
             },
             "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J5",
-              "pattern": "P1",
-              "outcome": "Succeeded"
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['job']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}"
             }
           }
         },

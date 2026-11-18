@@ -321,11 +321,23 @@
                       ]
                     },
                     "actions": {
+                      "Mark_duplicate_skipped": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "fileOutcome",
+                          "value": "skipped-duplicate"
+                        }
+                      },
                       "Count_skipped": {
                         "type": "IncrementVariable",
                         "inputs": {
                           "name": "filesSkipped",
                           "value": 1
+                        },
+                        "runAfter": {
+                          "Mark_duplicate_skipped": [
+                            "Succeeded"
+                          ]
                         }
                       },
                       "Record_skipped": {
@@ -488,6 +500,30 @@
                   ]
                 }
               },
+              "Track_file": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J4",
+                  "pattern": "P0+P1",
+                  "fileName": "@items('For_each_file')?['name']",
+                  "targetFolder": "@variables('targetFolder')",
+                  "outcome": "@variables('fileOutcome')"
+                },
+                "runAfter": {
+                  "Target_already_exists": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "fileName": "@{action()?['inputs']?['fileName']}",
+                  "targetFolder": "@{action()?['inputs']?['targetFolder']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}"
+                }
+              },
               "Archive_source": {
                 "type": "ServiceProvider",
                 "inputs": {
@@ -502,7 +538,7 @@
                   }
                 },
                 "runAfter": {
-                  "Target_already_exists": [
+                  "Track_file": [
                     "Succeeded"
                   ]
                 },
@@ -543,13 +579,6 @@
                   "count": 4,
                   "interval": "PT15S",
                   "maximumInterval": "PT5M"
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J4",
-                  "pattern": "P0+P1",
-                  "fileName": "@{items('For_each_file')?['name']}",
-                  "outcome": "@variables('fileOutcome')"
                 }
               }
             },
@@ -571,7 +600,9 @@
               "job": "J4",
               "filesProcessed": "@variables('filesDelivered')",
               "filesSkipped": "@variables('filesSkipped')",
-              "files": "@variables('files')"
+              "files": "@variables('files')",
+              "pattern": "P0+P1",
+              "outcome": "Succeeded"
             },
             "runAfter": {
               "For_each_file": [
@@ -579,10 +610,12 @@
               ]
             },
             "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J4",
-              "pattern": "P0+P1",
-              "outcome": "Succeeded"
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['job']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}"
             }
           }
         },

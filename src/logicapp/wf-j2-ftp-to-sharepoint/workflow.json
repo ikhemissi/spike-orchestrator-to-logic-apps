@@ -593,13 +593,30 @@
                   "Get_source_content": [
                     "Succeeded"
                   ]
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
+                }
+              },
+              "Track_file": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
                   "jobName": "J2",
                   "pattern": "P0",
-                  "fileName": "@{items('For_each_file')?['name']}",
-                  "target": "@parameters('j2Target')"
+                  "fileName": "@items('For_each_file')?['name']",
+                  "target": "@parameters('j2Target')",
+                  "outcome": "@last(variables('files'))?['result']"
+                },
+                "runAfter": {
+                  "Route_to_target": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "fileName": "@{action()?['inputs']?['fileName']}",
+                  "target": "@{action()?['inputs']?['target']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}"
                 }
               },
               "Archive_allowed_source": {
@@ -666,7 +683,7 @@
                   }
                 },
                 "runAfter": {
-                  "Route_to_target": [
+                  "Track_file": [
                     "Succeeded"
                   ]
                 }
@@ -691,7 +708,9 @@
               "filesProcessed": "@variables('filesDelivered')",
               "filesSkipped": "@variables('filesSkipped')",
               "filesFailed": "@variables('filesFailed')",
-              "files": "@variables('files')"
+              "files": "@variables('files')",
+              "pattern": "P0",
+              "outcome": "@if(greater(variables('filesFailed'), 0), 'PartialFailure', 'Succeeded')"
             },
             "runAfter": {
               "For_each_file": [
@@ -699,10 +718,12 @@
               ]
             },
             "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J2",
-              "pattern": "P0",
-              "outcome": "Succeeded"
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['job']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}"
             }
           }
         },
