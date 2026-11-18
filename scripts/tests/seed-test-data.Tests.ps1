@@ -93,12 +93,12 @@ Describe 'seed-test-data' {
         $script:AzCalls.Count | Should -Be 0
     }
 
-    It 'rejects an encoded NAS script larger than the Run Command payload limit' {
+    It 'rejects an encoded NAS script larger than the process argument limit' {
         $script:OversizedSeedFile = Join-Path $TestDrive 'encoded-oversized.bin'
         [IO.File]::WriteAllBytes($script:OversizedSeedFile, [byte[]]::new(200000))
         Mock Get-SeedDataFile { return $script:OversizedSeedFile }
 
-        { Invoke-SeedScenario -Scenario j3 } | Should -Throw '*NAS Run Command script exceeds 256 KiB after base64 encoding*'
+        { Invoke-SeedScenario -Scenario j3 } | Should -Throw '*NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding*'
         $script:AzCalls.Count | Should -Be 0
     }
 }

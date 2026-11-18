@@ -113,8 +113,8 @@ seed_nas() {
   remote_script+="); foreach (\$file in \$files) { \$path = Join-Path \$share \$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path \$path) | Out-Null; [IO.File]::WriteAllBytes(\$path, [Convert]::FromBase64String(\$file.Content)) }"
   local script_size
   script_size=$(printf '%s' "$remote_script" | wc -c)
-  if (( script_size > 262144 )); then
-    echo "NAS Run Command script exceeds 256 KiB after base64 encoding ($script_size bytes)" >&2
+  if (( script_size > 28672 )); then
+    echo "NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding ($script_size bytes)" >&2
     return 1
   fi
   # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.

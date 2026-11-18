@@ -112,7 +112,7 @@ if output=$(bash "$root/scripts/seed-test-data.sh" --scenario j3 2>&1); then
   echo "oversized encoded NAS payload unexpectedly succeeded" >&2
   exit 1
 fi
-[[ "$output" == *"NAS Run Command script exceeds 256 KiB after base64 encoding"* ]]
+[[ "$output" == *"NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding"* ]]
 
 : >"$CURL_TEST_LOG"
 output=$(bash "$root/scripts/seed-test-data.sh" --scenario j4)

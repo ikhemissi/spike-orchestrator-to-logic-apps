@@ -172,8 +172,8 @@ function Invoke-SeedScenario {
         }
         $remoteScript = "`$share = $shareLiteral; `$files = @($($entries -join ',')); foreach (`$file in `$files) { `$path = Join-Path `$share `$file.Path; New-Item -ItemType Directory -Force -Path (Split-Path `$path) | Out-Null; [IO.File]::WriteAllBytes(`$path, [Convert]::FromBase64String(`$file.Content)) }"
         $scriptSize = [Text.Encoding]::UTF8.GetByteCount($remoteScript)
-        if ($scriptSize -gt 262144) {
-            throw "NAS Run Command script exceeds 256 KiB after base64 encoding ($scriptSize bytes)"
+        if ($scriptSize -gt 28672) {
+            throw "NAS Run Command script exceeds the 28 KiB process argument limit after base64 encoding ($scriptSize bytes)"
         }
         # VERIFY: confirm the NAS VM supports RunPowerShellScript and the share is reachable by the VM agent.
         $null = Invoke-AzCli -Arguments @(
