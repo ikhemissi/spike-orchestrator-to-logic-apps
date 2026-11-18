@@ -203,13 +203,6 @@
             "runAfter": {},
             "retryPolicy": {
               "type": "none"
-            },
-            "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J3",
-              "pattern": "P3",
-              "outcome": "@{variables('outcome')}",
-              "errorCode": "@{variables('errorCode')}"
             }
           },
           "Set_automation_job_id": {
@@ -222,14 +215,36 @@
               "Create_job": [
                 "Succeeded"
               ]
-            },
-            "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
+            }
+          },
+          "Track_job_start": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
               "jobName": "J3",
               "pattern": "P3",
-              "automationJobId": "@{variables('automationJobId')}",
-              "outcome": "@{variables('outcome')}",
-              "errorCode": "@{variables('errorCode')}"
+              "automationJobId": "@variables('automationJobId')",
+              "filesProcessed": "@variables('filesProcessed')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "filesFailed": "@variables('filesFailed')",
+              "outcome": "@variables('outcome')",
+              "errorCode": "@variables('errorCode')"
+            },
+            "runAfter": {
+              "Set_automation_job_id": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['jobName']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+              "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "errorCode": "@{action()?['inputs']?['errorCode']}"
             }
           },
           "Until_job_terminal": {
@@ -272,14 +287,6 @@
                 },
                 "retryPolicy": {
                   "type": "none"
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J3",
-                  "pattern": "P3",
-                  "automationJobId": "@{variables('automationJobId')}",
-                  "outcome": "@{variables('outcome')}",
-                  "errorCode": "@{variables('errorCode')}"
                 }
               },
               "Set_job_status": {
@@ -296,7 +303,7 @@
               }
             },
             "runAfter": {
-              "Set_automation_job_id": [
+              "Track_job_start": [
                 "Succeeded"
               ]
             }
@@ -366,6 +373,36 @@
                   ]
                 }
               },
+              "Track_timeout": {
+                "type": "Compose",
+                "inputs": {
+                  "correlationId": "@variables('correlationId')",
+                  "jobName": "J3",
+                  "pattern": "P3",
+                  "automationJobId": "@variables('automationJobId')",
+                  "filesProcessed": "@variables('filesProcessed')",
+                  "filesSkipped": "@variables('filesSkipped')",
+                  "filesFailed": "@variables('filesFailed')",
+                  "outcome": "@variables('outcome')",
+                  "errorCode": "@variables('errorCode')"
+                },
+                "runAfter": {
+                  "Set_timeout_error_code": [
+                    "Succeeded"
+                  ]
+                },
+                "trackedProperties": {
+                  "correlationId": "@{action()?['inputs']?['correlationId']}",
+                  "jobName": "@{action()?['inputs']?['jobName']}",
+                  "pattern": "@{action()?['inputs']?['pattern']}",
+                  "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                  "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                  "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                  "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                  "outcome": "@{action()?['inputs']?['outcome']}",
+                  "errorCode": "@{action()?['inputs']?['errorCode']}"
+                }
+              },
               "Report_timeout": {
                 "type": "Workflow",
                 "inputs": {
@@ -398,20 +435,9 @@
                   }
                 },
                 "runAfter": {
-                  "Set_timeout_error_code": [
+                  "Track_timeout": [
                     "Succeeded"
                   ]
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J3",
-                  "pattern": "P3",
-                  "automationJobId": "@{variables('automationJobId')}",
-                  "filesProcessed": "@{variables('filesProcessed')}",
-                  "filesSkipped": "@{variables('filesSkipped')}",
-                  "filesFailed": "@{variables('filesFailed')}",
-                  "outcome": "@{variables('outcome')}",
-                  "errorCode": "@{variables('errorCode')}"
                 }
               },
               "Terminate_timeout": {
@@ -428,17 +454,6 @@
                     "Succeeded",
                     "Failed"
                   ]
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J3",
-                  "pattern": "P3",
-                  "automationJobId": "@{variables('automationJobId')}",
-                  "filesProcessed": "@{variables('filesProcessed')}",
-                  "filesSkipped": "@{variables('filesSkipped')}",
-                  "filesFailed": "@{variables('filesFailed')}",
-                  "outcome": "@{variables('outcome')}",
-                  "errorCode": "HYBRID_JOB_TIMEOUT"
                 }
               }
             },
@@ -479,14 +494,6 @@
                 "runAfter": {},
                 "retryPolicy": {
                   "type": "none"
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J3",
-                  "pattern": "P3",
-                  "automationJobId": "@{variables('automationJobId')}",
-                  "outcome": "@{variables('outcome')}",
-                  "errorCode": "@{variables('errorCode')}"
                 }
               },
               "Parse_runbook_output": {
@@ -597,17 +604,6 @@
                   "Get_job_output": [
                     "Succeeded"
                   ]
-                },
-                "trackedProperties": {
-                  "correlationId": "@{variables('correlationId')}",
-                  "jobName": "J3",
-                  "pattern": "P3",
-                  "automationJobId": "@{variables('automationJobId')}",
-                  "filesProcessed": "@{body('Parse_runbook_output')?['filesProcessed']}",
-                  "filesSkipped": "@{body('Parse_runbook_output')?['filesSkipped']}",
-                  "filesFailed": "@{body('Parse_runbook_output')?['filesFailed']}",
-                  "outcome": "@{body('Parse_runbook_output')?['status']}",
-                  "errorCode": "@{variables('errorCode')}"
                 }
               },
               "If_runbook_succeeded": {
@@ -679,6 +675,36 @@
                       ]
                     }
                   },
+                  "Track_runbook_success": {
+                    "type": "Compose",
+                    "inputs": {
+                      "correlationId": "@variables('correlationId')",
+                      "jobName": "J3",
+                      "pattern": "P3",
+                      "automationJobId": "@variables('automationJobId')",
+                      "filesProcessed": "@variables('filesProcessed')",
+                      "filesSkipped": "@variables('filesSkipped')",
+                      "filesFailed": "@variables('filesFailed')",
+                      "outcome": "@variables('outcome')",
+                      "errorCode": "@variables('errorCode')"
+                    },
+                    "runAfter": {
+                      "Set_success_outcome": [
+                        "Succeeded"
+                      ]
+                    },
+                    "trackedProperties": {
+                      "correlationId": "@{action()?['inputs']?['correlationId']}",
+                      "jobName": "@{action()?['inputs']?['jobName']}",
+                      "pattern": "@{action()?['inputs']?['pattern']}",
+                      "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                      "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                      "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                      "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                      "outcome": "@{action()?['inputs']?['outcome']}",
+                      "errorCode": "@{action()?['inputs']?['errorCode']}"
+                    }
+                  },
                   "Report_success": {
                     "type": "Workflow",
                     "inputs": {
@@ -702,20 +728,9 @@
                       }
                     },
                     "runAfter": {
-                      "Set_success_outcome": [
+                      "Track_runbook_success": [
                         "Succeeded"
                       ]
-                    },
-                    "trackedProperties": {
-                      "correlationId": "@{variables('correlationId')}",
-                      "jobName": "J3",
-                      "pattern": "P3",
-                      "automationJobId": "@{variables('automationJobId')}",
-                      "filesProcessed": "@{variables('filesProcessed')}",
-                      "filesSkipped": "@{variables('filesSkipped')}",
-                      "filesFailed": "@{variables('filesFailed')}",
-                      "outcome": "@{variables('outcome')}",
-                      "errorCode": "@{variables('errorCode')}"
                     }
                   }
                 },
@@ -777,6 +792,36 @@
                         ]
                       }
                     },
+                    "Track_runbook_failure": {
+                      "type": "Compose",
+                      "inputs": {
+                        "correlationId": "@variables('correlationId')",
+                        "jobName": "J3",
+                        "pattern": "P3",
+                        "automationJobId": "@variables('automationJobId')",
+                        "filesProcessed": "@variables('filesProcessed')",
+                        "filesSkipped": "@variables('filesSkipped')",
+                        "filesFailed": "@variables('filesFailed')",
+                        "outcome": "@variables('outcome')",
+                        "errorCode": "@variables('errorCode')"
+                      },
+                      "runAfter": {
+                        "Set_reported_failure_error_code": [
+                          "Succeeded"
+                        ]
+                      },
+                      "trackedProperties": {
+                        "correlationId": "@{action()?['inputs']?['correlationId']}",
+                        "jobName": "@{action()?['inputs']?['jobName']}",
+                        "pattern": "@{action()?['inputs']?['pattern']}",
+                        "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                        "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                        "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                        "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                        "outcome": "@{action()?['inputs']?['outcome']}",
+                        "errorCode": "@{action()?['inputs']?['errorCode']}"
+                      }
+                    },
                     "Report_runbook_failure": {
                       "type": "Workflow",
                       "inputs": {
@@ -800,20 +845,9 @@
                         }
                       },
                       "runAfter": {
-                        "Set_reported_failure_error_code": [
+                        "Track_runbook_failure": [
                           "Succeeded"
                         ]
-                      },
-                      "trackedProperties": {
-                        "correlationId": "@{variables('correlationId')}",
-                        "jobName": "J3",
-                        "pattern": "P3",
-                        "automationJobId": "@{variables('automationJobId')}",
-                        "filesProcessed": "@{variables('filesProcessed')}",
-                        "filesSkipped": "@{variables('filesSkipped')}",
-                        "filesFailed": "@{variables('filesFailed')}",
-                        "outcome": "@{variables('outcome')}",
-                        "errorCode": "@{variables('errorCode')}"
                       }
                     },
                     "Terminate_runbook_failure": {
@@ -830,17 +864,6 @@
                           "Succeeded",
                           "Failed"
                         ]
-                      },
-                      "trackedProperties": {
-                        "correlationId": "@{variables('correlationId')}",
-                        "jobName": "J3",
-                        "pattern": "P3",
-                        "automationJobId": "@{variables('automationJobId')}",
-                        "filesProcessed": "@{variables('filesProcessed')}",
-                        "filesSkipped": "@{variables('filesSkipped')}",
-                        "filesFailed": "@{variables('filesFailed')}",
-                        "outcome": "@{variables('outcome')}",
-                        "errorCode": "RUNBOOK_REPORTED_FAILURE"
                       }
                     }
                   }
@@ -886,6 +909,36 @@
                     ]
                   }
                 },
+                "Track_terminal_failure": {
+                  "type": "Compose",
+                  "inputs": {
+                    "correlationId": "@variables('correlationId')",
+                    "jobName": "J3",
+                    "pattern": "P3",
+                    "automationJobId": "@variables('automationJobId')",
+                    "filesProcessed": "@variables('filesProcessed')",
+                    "filesSkipped": "@variables('filesSkipped')",
+                    "filesFailed": "@variables('filesFailed')",
+                    "outcome": "@variables('outcome')",
+                    "errorCode": "@variables('errorCode')"
+                  },
+                  "runAfter": {
+                    "Set_terminal_failure_error_code": [
+                      "Succeeded"
+                    ]
+                  },
+                  "trackedProperties": {
+                    "correlationId": "@{action()?['inputs']?['correlationId']}",
+                    "jobName": "@{action()?['inputs']?['jobName']}",
+                    "pattern": "@{action()?['inputs']?['pattern']}",
+                    "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+                    "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+                    "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+                    "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+                    "outcome": "@{action()?['inputs']?['outcome']}",
+                    "errorCode": "@{action()?['inputs']?['errorCode']}"
+                  }
+                },
                 "Report_terminal_failure": {
                   "type": "Workflow",
                   "inputs": {
@@ -918,20 +971,9 @@
                     }
                   },
                   "runAfter": {
-                    "Set_terminal_failure_error_code": [
+                    "Track_terminal_failure": [
                       "Succeeded"
                     ]
-                  },
-                  "trackedProperties": {
-                    "correlationId": "@{variables('correlationId')}",
-                    "jobName": "J3",
-                    "pattern": "P3",
-                    "automationJobId": "@{variables('automationJobId')}",
-                    "filesProcessed": "@{variables('filesProcessed')}",
-                    "filesSkipped": "@{variables('filesSkipped')}",
-                    "filesFailed": "@{variables('filesFailed')}",
-                    "outcome": "@{variables('outcome')}",
-                    "errorCode": "@{variables('errorCode')}"
                   }
                 },
                 "Terminate_terminal_failure": {
@@ -948,17 +990,6 @@
                       "Succeeded",
                       "Failed"
                     ]
-                  },
-                  "trackedProperties": {
-                    "correlationId": "@{variables('correlationId')}",
-                    "jobName": "J3",
-                    "pattern": "P3",
-                    "automationJobId": "@{variables('automationJobId')}",
-                    "filesProcessed": "@{variables('filesProcessed')}",
-                    "filesSkipped": "@{variables('filesSkipped')}",
-                    "filesFailed": "@{variables('filesFailed')}",
-                    "outcome": "@{variables('outcome')}",
-                    "errorCode": "RUNBOOK_REPORTED_FAILURE"
                   }
                 }
               }
@@ -1025,6 +1056,36 @@
               ]
             }
           },
+          "Track_workflow_failure": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('correlationId')",
+              "jobName": "J3",
+              "pattern": "P3",
+              "automationJobId": "@variables('automationJobId')",
+              "filesProcessed": "@variables('filesProcessed')",
+              "filesSkipped": "@variables('filesSkipped')",
+              "filesFailed": "@variables('filesFailed')",
+              "outcome": "@variables('outcome')",
+              "errorCode": "@variables('errorCode')"
+            },
+            "runAfter": {
+              "Set_catch_files_failed": [
+                "Succeeded"
+              ]
+            },
+            "trackedProperties": {
+              "correlationId": "@{action()?['inputs']?['correlationId']}",
+              "jobName": "@{action()?['inputs']?['jobName']}",
+              "pattern": "@{action()?['inputs']?['pattern']}",
+              "automationJobId": "@{action()?['inputs']?['automationJobId']}",
+              "filesProcessed": "@{action()?['inputs']?['filesProcessed']}",
+              "filesSkipped": "@{action()?['inputs']?['filesSkipped']}",
+              "filesFailed": "@{action()?['inputs']?['filesFailed']}",
+              "outcome": "@{action()?['inputs']?['outcome']}",
+              "errorCode": "@{action()?['inputs']?['errorCode']}"
+            }
+          },
           "Report_failure": {
             "type": "Workflow",
             "inputs": {
@@ -1051,20 +1112,9 @@
               }
             },
             "runAfter": {
-              "Set_catch_files_failed": [
+              "Track_workflow_failure": [
                 "Succeeded"
               ]
-            },
-            "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J3",
-              "pattern": "P3",
-              "automationJobId": "@{variables('automationJobId')}",
-              "filesProcessed": "@{variables('filesProcessed')}",
-              "filesSkipped": "@{variables('filesSkipped')}",
-              "filesFailed": "@{variables('filesFailed')}",
-              "outcome": "@{variables('outcome')}",
-              "errorCode": "@{variables('errorCode')}"
             }
           },
           "Terminate_failed": {
@@ -1081,17 +1131,6 @@
                 "Succeeded",
                 "Failed"
               ]
-            },
-            "trackedProperties": {
-              "correlationId": "@{variables('correlationId')}",
-              "jobName": "J3",
-              "pattern": "P3",
-              "automationJobId": "@{variables('automationJobId')}",
-              "filesProcessed": "@{variables('filesProcessed')}",
-              "filesSkipped": "@{variables('filesSkipped')}",
-              "filesFailed": "@{variables('filesFailed')}",
-              "outcome": "@{variables('outcome')}",
-              "errorCode": "@{variables('errorCode')}"
             }
           }
         }
