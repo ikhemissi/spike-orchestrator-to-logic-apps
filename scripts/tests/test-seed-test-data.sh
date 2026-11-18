@@ -23,9 +23,15 @@ grep -q -- '--ftp-pasv' "$CURL_TEST_LOG"
 grep -q -- '--stdin-user-configured' "$CURL_TEST_LOG"
 grep -q 'large_partner_extract.csv' "$CURL_TEST_LOG"
 grep -q '~lock_invoices.csv' "$CURL_TEST_LOG"
-grep -q 'outbound/j1/' "$CURL_TEST_LOG"
+grep -q 'ftp://partner-a.example.test:2121/outbound/j1/' "$CURL_TEST_LOG"
 grep -q 'ftp-partner-a-password' "$AZ_TEST_LOG"
 if grep -q 'test-secret-value' "$AZ_TEST_LOG"; then exit 1; fi
+
+: >"$CURL_TEST_LOG"
+export PARTNER_FTP_PORT=2021
+output=$(bash "$root/scripts/seed-test-data.sh" --scenario j2)
+[[ "$output" == "Seeded scenario j2." ]]
+grep -q 'ftp://partner-a.example.test:2021/outbound/j2/' "$CURL_TEST_LOG"
 
 : >"$AZ_TEST_LOG"
 output=$(bash "$root/scripts/seed-test-data.sh" --scenario j3-failure)

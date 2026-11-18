@@ -9,7 +9,7 @@ state_path = os.environ.get("AZ_TEST_STATE")
 log_path = os.environ.get("AZ_TEST_LOG")
 state = {
     "partner_rule": {
-        "name": "partner-allow",
+        "name": "Allow-FTP-SFTP-From-NAT-And-Deployer",
         "sourceAddressPrefixes": ["198.51.100.10", "203.0.113.8"],
         "description": "partner allow list",
     },

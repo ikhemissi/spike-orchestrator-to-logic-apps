@@ -1,6 +1,6 @@
 # 01 — VERIFY items of the specification
 
-**Date:** 2026-11-17 (in progress) · **Answers:** Q6 (and the build of Q2–Q4) · **Versions:** Azure CLI 2.88.0, azd 1.37.3, Terraform 1.15.8
+**Date:** 2026-11-17  · **Answers:** Q6 (and the build of Q2–Q4) · **Versions:** Azure CLI 2.88.0, azd 1.37.3, Terraform 1.15.8
 
 ## Goal
 
@@ -18,15 +18,17 @@ One subscription, region `francecentral`, the deployer's own Entra identity thro
 | V2 | Built-in policy enforcing jobs on Hybrid Runbook Workers (§3.4) | Search of the built-in definitions (`az policy definition list`) and of the Azure Policy built-ins repository | No such built-in definition found. → Skipped and documented, as the spec allows (D5). |
 | V3 | azd `azure.logicappsstandard` extension (§2.2) | `azd ext list`; the azd extension registries | Source exists in the azd repository; not listed in the extension registries available to this azd on 2026-11-17. → The scripted path (Terraform through azd, then `scripts/deploy-logicapp.*`) is the primary path; the extension path is rechecked at the end. The scripted path deployed two workflows on 2026-11-17; the runtime answered 503 for about a minute after the restart (the script retries). |
 | V4 | Built-in FTP operations (§5.2) | Runtime management API of the deployed app ([evidence](assets/01-builtin-connectors.md)) | **Confirmed live:** `listFilesInFolder(folderPath)`, `getFtpFileContent(filePath)`, `createFile(filePath, fileContent)`, `deleteFtpFile(filePath, skipIfFileNotPresent)`, `getFileMetadata`; no rename/move/copy. Archive = `createFile` in `/outbound/archive` + `deleteFtpFile`. Connection: `serverAddress`, `username`, `password`, `portNumber`, `enableSsl`, `enableBinaryMode`; no passive-mode setting. |
-| V5 | Built-in SFTP rename (§5.2) | Runtime management API of the deployed app ([evidence](assets/01-builtin-connectors.md)) | **Confirmed live:** `uploadFileContent(filePath, content, overWriteFileIfExists)`, `renameFile(filePath, newFileName)`, `getMetadata(fileOrFolderPath)`. Not-found behaviour of `getMetadata`: to observe in J1. |
+| V5 | Built-in SFTP rename (§5.2) | Runtime API, then J1 runs on 2026-11-18 | **Confirmed live:** `uploadFileContent` to `<name>.partial` then `renameFile` delivers atomically (20 MB file included). A missing target makes `getMetadata` fail with code `NotFound`; J1 runs its check after Succeeded or Failed of that action, without retries. |
 | V6 | Azure Automation built-in connector (§5.1) | Runtime management API of the deployed app ([evidence](assets/01-builtin-connectors.md)) | **Confirmed live:** `createJob(subscriptionId, resourceGroup, automationAccount, runbookName, runbookParameters, hybridAutomationWorkerGroup, waitForJob)`, `getJobStatus(…, jobId)`, `getJobOutput(…, jobId)`; connection set `ManagedServiceIdentity` (`authProvider.Type`, `authProvider.Identity`). |
 | V7 | Extension bundle and enhanced telemetry (§3.3, §3.6) | Host settings documentation | `Microsoft.Azure.Functions.ExtensionBundle.Workflows` `[1.*, 2.0.0)`; `extensions.workflow.Settings."Runtime.ApplicationInsightTelemetryVersion": "v2"` (in `src/logicapp/host.json`). |
 | V8 | `az logicapp deployment source config-zip` (§2.3) | CLI reference | `-g <rg> -n <app> --src <zip>` (zip deployment). |
 | V9 | PowerShell 7.4 runtime environment (§3.4) | REST and Terraform provider references | `Microsoft.Automation/automationAccounts/runtimeEnvironments` (`2024-10-23`); `azurerm_automation_runtime_environment` and `runtime_environment_name` on the runbook. Version 7.4 acceptance: to confirm live. |
 | V10 | Hybrid worker extension and group credential (§3.4) | Automation documentation, provider reference | VM extension `Microsoft.Azure.Automation.HybridWorker` / `HybridWorkerForWindows` 1.1, setting `AutomationAccountURL`; `azurerm_automation_hybrid_runbook_worker_group.credential_name`; worker registration needs a worker UUID and the VM resource ID. |
-| V11 | Run a Recurrence trigger through the management API (§5.0) | — | Open: test live with `wf-diag-egress-ip` deployed. |
+| V11 | Run a Recurrence trigger through the management API (§5.0) | J1 on 2026-11-18 | **Confirmed live:** `POST …/hostruntime/runtime/webhooks/workflow/api/management/workflows/{workflow}/triggers/{trigger}/run?api-version=2018-11-01` starts a run of a Recurrence trigger. Right after a deployment the runtime answers 503 for up to a minute: callers retry. |
 | V12 | `connections.json` parameter names of the built-in connectors (§5.1) | Runtime management API of the deployed app ([evidence](assets/01-builtin-connectors.md)) | **Settled:** the runtime publishes each connector's parameter names and nesting ([evidence](assets/01-builtin-connectors.md)). Blob with a user-assigned identity: `blobStorageEndpoint`, `managedIdentityType: UserAssigned`, `authProvider: {Type: ManagedServiceIdentity, Identity: <identity resource ID>}` — verified by `wf-child-run-report` writing a report blob. |
 
 ## Conclusion
 
-In progress. No item so far blocks the design: V1 changes the VM size, V2 drops the policy assignment, V3 makes the scripted deployment the primary path.
+All twelve items are settled. Two more observations from the first J1 runs: tracked properties can read only their own action's inputs and outputs and the trigger (not `variables()`), so workflows record them on a Compose action that carries the values; and a Recurrence trigger keeps firing while the simulated environment is stopped, producing failed runs.
+
+No item blocks the design: V1 changes the VM size, V2 drops the policy assignment, V3 makes the scripted deployment the primary path.

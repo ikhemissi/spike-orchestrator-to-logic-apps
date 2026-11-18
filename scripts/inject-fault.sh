@@ -69,13 +69,15 @@ import base64, json, sys
 nat = sys.argv[1]
 matches = []
 for rule in json.load(sys.stdin):
+    if rule.get("name") != "Allow-FTP-SFTP-From-NAT-And-Deployer":
+        continue
     prefixes = rule.get("sourceAddressPrefixes") or ([rule["sourceAddressPrefix"]] if rule.get("sourceAddressPrefix") else [])
     if nat in prefixes:
         state = {"description": rule.get("description") or "", "prefixes": prefixes}
         encoded = base64.b64encode(json.dumps(state, separators=(",", ":")).encode()).decode()
         matches.append((rule["name"], encoded, prefixes))
 if len(matches) != 1:
-    raise SystemExit("Expected exactly one partner NSG rule containing NAT_PUBLIC_IP; found %d" % len(matches))
+    raise SystemExit("Expected exactly one rule named Allow-FTP-SFTP-From-NAT-And-Deployer containing NAT_PUBLIC_IP; found %d" % len(matches))
 name, encoded, prefixes = matches[0]
 remaining = [prefix for prefix in prefixes if prefix != nat]
 if not remaining:
@@ -97,9 +99,9 @@ invoke_partner_services() {
   local action=$1
   local script
   if [[ "$action" == stop ]]; then
-    # VERIFY: partner VM runs Linux with vsftpd; sshd is stopped with it so the partner is unavailable.
+    # VERIFY: partner VM runs Linux with vsftpd; ssh is stopped with it so the partner is unavailable.
     # shellcheck disable=SC2016
-    script='state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet sshd; then echo sshd >> "$state"; fi; systemctl stop vsftpd sshd'
+    script='state=/var/tmp/fault-partner-services; if [ -e "$state" ]; then echo "partner-down state already exists" >&2; exit 1; fi; : > "$state"; if systemctl is-active --quiet vsftpd; then echo vsftpd >> "$state"; fi; if systemctl is-active --quiet ssh; then echo ssh >> "$state"; fi; systemctl stop vsftpd ssh'
   else
     # VERIFY: restore only services that were active before fault injection.
     # shellcheck disable=SC2016
