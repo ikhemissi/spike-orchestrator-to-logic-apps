@@ -31,7 +31,7 @@ function Get-Setting {
 }
 
 function Invoke-AzCli {
-    param([Parameter(Mandatory)][string[]]$Arguments)
+    param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments)
     $result = & az @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "az $($Arguments[0]) failed with exit code $LASTEXITCODE"
@@ -54,7 +54,7 @@ function Invoke-PartnerNsgRuleUpdate {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string[]]$Prefixes,
-        [Parameter(Mandatory)][string]$Description
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Description
     )
     $resourceGroup = Get-Setting AZURE_RESOURCE_GROUP
     $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
@@ -450,6 +450,8 @@ function Invoke-Fault {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    # A failed step must stop the script: restore-all would otherwise report success with a fault still in place.
+    $ErrorActionPreference = 'Stop'
     if ($args.Count -ne 1) {
         throw 'Usage: inject-fault.ps1 <partner-ip-block|partner-down|bad-ftp-password|nas-block|worker-stop|worker-system-account|restore-all>'
     }

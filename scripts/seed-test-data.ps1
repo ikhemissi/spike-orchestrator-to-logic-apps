@@ -192,6 +192,7 @@ function Invoke-SeedScenario {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    $ErrorActionPreference = 'Stop'
     if ($args.Count -ne 2 -or $args[0] -ne '--scenario') {
         throw "Usage: $($MyInvocation.MyCommand.Name) --scenario <j1|j2|j3|j3-failure|j4|j5>"
     }

@@ -265,6 +265,7 @@ function Invoke-ResetEnvironment {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    $ErrorActionPreference = 'Stop'
     if ($args.Count -ne 0) {
         throw 'Usage: reset-environment.ps1'
     }
