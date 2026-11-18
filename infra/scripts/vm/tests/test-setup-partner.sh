@@ -179,11 +179,27 @@ for run_number in 1 2; do
   run_setup
 done
 
+# Each run restarts vsftpd and sshd: wait for their greeting, not only for an open port, before testing them.
+wait_for_greeting() {
+  local port="$1" expected_prefix="$2" greeting
+  for _ in $(seq 1 60); do
+    greeting="$(timeout 3 bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}; head -c 4 <&3" 2>/dev/null || true)"
+    if [[ "${greeting}" == "${expected_prefix}"* ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "No ${expected_prefix} greeting on port ${port} after 60 s." >&2
+  exit 1
+}
+wait_for_greeting "${FTP_PORT:-21}" "220"
+wait_for_greeting "${SSH_PORT}" "SSH-"
+
 ftp_source="${temporary_dir}/ftp-source.txt"
 ftp_download="${temporary_dir}/ftp-download.txt"
 printf 'partner-a FTP integration test\n' >"${ftp_source}"
 ftp_url="ftp://127.0.0.1/outbound/j1/"
-curl_test_options=(--connect-timeout 15 --max-time 60)
+curl_test_options=(--connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 --retry-connrefused)
 ftp_options=()
 if [[ "${ENABLE_FTPS}" == "true" ]]; then
   # The test deliberately accepts the generated self-signed certificate on loopback.
@@ -209,12 +225,6 @@ if grep -Fxq before-rename.txt <<<"${ftp_listing}"; then
   exit 1
 fi
 echo "PASS: partner-a FTP upload, listing, download, and rename."
-
-# The second provisioning run restarts sshd; wait until it accepts connections again.
-for _ in $(seq 1 30); do
-  if (exec 3<>"/dev/tcp/127.0.0.1/${SSH_PORT}") 2>/dev/null; then break; fi
-  sleep 1
-done
 
 sftp_source="${temporary_dir}/sftp-source.txt"
 printf 'partner-b SFTP integration test\n' >"${sftp_source}"
