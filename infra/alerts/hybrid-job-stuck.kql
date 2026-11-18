@@ -10,6 +10,6 @@ let TimedOutWorkflowRuns =
     LogicAppWorkflowRuntime
     | where TimeGenerated >= ago(15m)
     | where WorkflowName == "wf-j3-convert-onprem"
-    | where tostring(TrackedProperties.errorCode) == "HYBRID_JOB_TIMEOUT"
+    | where tostring(parse_json(TrackedProperties).errorCode) == "HYBRID_JOB_TIMEOUT"
     | count;
 print StuckOrTimedOutJobs = toscalar(StuckAutomationJobs) + toscalar(TimedOutWorkflowRuns)

@@ -14,12 +14,41 @@ locals {
     SFTP_PARTNER_B_PORT        = tostring(var.partner_sftp_port)
     SFTP_PARTNER_B_USERNAME    = "partner-b"
     SFTP_PARTNER_B_PRIVATE_KEY = format(local.key_vault_reference, "sftp-partner-b-private-key")
-    NAS_ROOT_FOLDER            = "\\\\nas01.${local.corp_dns_zone_name}\\share"
+    NAS_MOUNT_PATH             = local.nas_mount_path
     NAS_USERNAME               = "nas01\\svc-la"
     NAS_PASSWORD               = format(local.key_vault_reference, "nas-svc-la-password")
     AUTOMATION_SUBSCRIPTION_ID = var.subscription_id
     AUTOMATION_RESOURCE_GROUP  = azurerm_resource_group.main.name
     AUTOMATION_ACCOUNT_NAME    = azurerm_automation_account.main.name
     HYBRID_WORKER_GROUP        = azurerm_automation_hybrid_runbook_worker_group.files.name
+  }
+}
+
+# The built-in File System connector reads the NAS through a file-share mount of the app (SMB, under C:\mounts), not
+# from the connection itself: the connection only names the mount path. The designer creates both when a connection is
+# made by hand; deployed from files, the mount is declared here. Its password comes from the Key Vault-backed setting.
+locals {
+  nas_mount_name = "nas-share"
+  nas_mount_path = "C:\\mounts\\${local.nas_mount_name}"
+}
+
+# A PUT action: this configuration cannot be read back with GET (only listed), so it is not a managed resource.
+resource "azapi_resource_action" "logicapp_nas_mount" {
+  type        = "Microsoft.Web/sites/config@2024-04-01"
+  resource_id = "${azurerm_logic_app_standard.main.id}/config/azureStorageAccounts"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      (local.nas_mount_name) = {
+        type        = "FileShare"
+        protocol    = "Smb"
+        endpoint    = "nas01.${local.corp_dns_zone_name}"
+        shareName   = "share"
+        accountName = "nas01\\svc-la"
+        accessKey   = "@AppSettingRef(NAS_PASSWORD)"
+        mountPath   = "\\mounts\\${local.nas_mount_name}"
+      }
+    }
   }
 }

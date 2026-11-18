@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import os
 import sys
@@ -17,6 +18,10 @@ if "test-secret-value" in config:
 log_path = os.environ.get("CURL_TEST_LOG")
 if log_path:
     with open(log_path, "a", encoding="utf-8") as log_file:
-        log_file.write(json.dumps(args) + "\n")
+        entry = {"args": args}
+        if "-T" in args:
+            with open(args[args.index("-T") + 1], "rb") as source_file:
+                entry["sha256"] = hashlib.sha256(source_file.read()).hexdigest()
+        log_file.write(json.dumps(entry) + "\n")
 if "--list-only" in args:
     print(os.environ.get("CURL_TEST_LISTING", "sample.txt"))

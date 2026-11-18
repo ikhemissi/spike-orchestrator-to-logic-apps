@@ -47,6 +47,8 @@ resource "azurerm_logic_app_standard" "main" {
   https_only                      = true
   virtual_network_subnet_id       = local.network.subnet_ids["logicapp-integration"]
   key_vault_reference_identity_id = azurerm_user_assigned_identity.logicapp.id
+  # The NAS mount (logicapp-connections.tf) goes through the integrated network too.
+  vnet_content_share_enabled = true
   # Kept public so that the deployer can push the workflows (zip deployment); production with private inbound
   # access deploys from a runner inside the network (decision D7).
   public_network_access = "Enabled"
