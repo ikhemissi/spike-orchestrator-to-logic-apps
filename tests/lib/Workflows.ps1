@@ -178,12 +178,20 @@ function Get-WorkflowRunAction {
     )
 
     $url = Get-WorkflowManagementUrl -Environment $Environment -WorkflowName $WorkflowName -RunId $RunId
-    $actionsUrl = "$url/actions?api-version=$script:LogicAppsManagementApiVersion"
-    $response = Invoke-WorkflowManagementRequest -Method get -Url $actionsUrl
-    if ($null -eq $response) {
-        return @()
+    # The list is paged (30 actions per page): follow nextLink.
+    $nextUrl = "$url/actions?api-version=$script:LogicAppsManagementApiVersion"
+    $actions = [Collections.Generic.List[object]]::new()
+    while ($nextUrl) {
+        $response = Invoke-WorkflowManagementRequest -Method get -Url $nextUrl
+        if ($null -eq $response) {
+            break
+        }
+        foreach ($action in @($response.value)) {
+            $actions.Add($action)
+        }
+        $nextUrl = $response.nextLink
     }
-    return @($response.value)
+    return $actions.ToArray()
 }
 
 function Get-WorkflowActionOutput {

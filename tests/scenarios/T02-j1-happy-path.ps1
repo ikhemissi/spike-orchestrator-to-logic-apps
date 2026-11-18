@@ -116,7 +116,7 @@ function Assert {
         throw 'J1 delivered the locked file to partner B.'
     }
     $partnerA = Get-PartnerAArchiveListing
-    $script:J1PartnerAArchiveFiles = @($partnerA.Files)
+    $script:J1PartnerAArchiveFiles = @($partnerA)
     foreach ($fileName in $sourceFiles) {
         if (-not @($script:J1PartnerAArchiveFiles | Where-Object { $_ -like "*_$fileName" })) {
             throw "J1 did not archive '$fileName' on partner A."
