@@ -145,6 +145,14 @@ print(next((value for value in range(100, 4097) if value not in used), ""))
     --nsg-name "$SERVERS_NSG_NAME" --name fault-nas-block --priority "$priority" \
     --direction Inbound --access Deny --protocol Tcp --source-address-prefixes "$subnet_prefix" \
     --source-port-ranges '*' --destination-address-prefixes "$nas_ip/32" --destination-port-ranges 445 --output none
+  restart_logic_app_for_nas_mount
+}
+
+# The NAS is a file-share mount of the Logic App; an open SMB session survives a new NSG rule (NSGs are stateful), so
+# the app restarts to mount the share again through the changed rules.
+restart_logic_app_for_nas_mount() {
+  az logicapp restart --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --subscription "$AZURE_SUBSCRIPTION_ID" --output none
 }
 
 worker_names() {
@@ -224,6 +232,7 @@ restore_nas_block() {
   [[ "$exists" == True ]] || return 0
   az network nsg rule delete --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
     --nsg-name "$SERVERS_NSG_NAME" --name fault-nas-block --output none
+  restart_logic_app_for_nas_mount
 }
 
 set_ftp_password_secret() {

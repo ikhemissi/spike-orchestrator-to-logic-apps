@@ -185,7 +185,23 @@ function Invoke-NasBlock {
         '--source-address-prefixes', "$subnetPrefix",
         '--destination-address-prefixes', "$nasIp/32", '--destination-port-ranges', '445', '--output', 'none'
     )
+    Restart-LogicAppForNasMount
 }
+
+function Restart-LogicAppForNasMount {
+    # The NAS is a file-share mount of the Logic App; an open SMB session survives a new NSG rule (NSGs are stateful),
+    # so the app restarts to mount the share again through the changed rules.
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+    if (-not $PSCmdlet.ShouldProcess((Get-Setting LOGIC_APP_NAME), 'Restart')) {
+        return
+    }
+    $null = Invoke-AzCli -Arguments @(
+        'logicapp', 'restart', '--name', (Get-Setting LOGIC_APP_NAME), '--resource-group', (Get-Setting AZURE_RESOURCE_GROUP),
+        '--subscription', (Get-Setting AZURE_SUBSCRIPTION_ID), '--output', 'none'
+    )
+}
+
 
 function Get-WorkerName {
     $workers = @((Get-Setting WORKER_VM_NAMES) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -305,6 +321,7 @@ function Restore-NasBlock {
         'network', 'nsg', 'rule', 'delete', '--resource-group', $resourceGroup,
         '--subscription', $subscription, '--nsg-name', $nsgName, '--name', 'fault-nas-block', '--output', 'none'
     )
+    Restart-LogicAppForNasMount
 }
 
 function Set-FtpPasswordSecret {

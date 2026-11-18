@@ -147,7 +147,7 @@ function Start-Workflow {
         [Parameter(Mandatory)][hashtable]$Environment,
         [Parameter(Mandatory)][string]$WorkflowName,
         [string]$TriggerName = 'Recurrence',
-        [timespan]$StartTimeout = ([timespan]::FromMinutes(2)),
+        [timespan]$StartTimeout = ([timespan]::FromMinutes(5)),
         [timespan]$PollInterval = ([timespan]::FromSeconds(5))
     )
 
@@ -155,6 +155,8 @@ function Start-Workflow {
     if (-not $PSCmdlet.ShouldProcess($WorkflowName, "Trigger '$TriggerName'")) {
         return
     }
+    # A fault may just have restarted the app: a trigger sent before its runtime is ready can be lost.
+    Wait-WorkflowRuntime -Environment $Environment
     $triggeredAtUtc = [datetime]::UtcNow
     Invoke-WorkflowManagementRequest -Method post -Url $url | Out-Null
 

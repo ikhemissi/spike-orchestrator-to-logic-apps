@@ -1,5 +1,7 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot '../lib/Workflows.ps1')
+    # Start-Workflow first waits for the runtime after possible restarts; these tests are about the trigger and the run.
+    Mock Wait-WorkflowRuntime {}
 }
 
 Describe 'Wait-WorkflowRun' {
