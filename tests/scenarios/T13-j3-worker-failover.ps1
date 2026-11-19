@@ -54,6 +54,12 @@ function GetEvidence {
 
 function Restore {
     if ($script:SecondWorkerEnabled) {
-        & (Join-Path (Split-Path -Parent $script:TestRoot) 'scripts/inject-fault.ps1') restore-all | Out-Null
+        # The scenario stops the first worker itself (the worker-stop fault stops them all), so it starts it again.
+        $firstWorker = ($script:ScenarioEnvironment.WORKER_VM_NAMES -split ',')[0].Trim()
+        Invoke-AzCommand -Arguments @(
+            'vm', 'start', '--resource-group', $script:ScenarioEnvironment.AZURE_RESOURCE_GROUP,
+            '--subscription', $script:ScenarioEnvironment.AZURE_SUBSCRIPTION_ID,
+            '--name', $firstWorker, '--output', 'none'
+        ) | Out-Null
     }
 }
