@@ -147,7 +147,7 @@ elif args[:2] == ["rest", "--method"] and option("--method") == "get":
     }))
 elif args[:2] == ["rest", "--method"] and option("--method") == "patch":
     body = json.loads(option("--body", "{}"))
-    state["worker_group_tags"] = body.get("tags", {})
+    state["worker_group_tags"] = body.get("tags", state["worker_group_tags"])
     credential = body.get("properties", {}).get("credential")
     state["worker_credential"] = credential.get("name") if credential else None
     save_state()

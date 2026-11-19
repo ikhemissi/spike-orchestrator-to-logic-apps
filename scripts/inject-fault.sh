@@ -194,33 +194,17 @@ worker_group_url() {
     "$AZURE_SUBSCRIPTION_ID" "$AZURE_RESOURCE_GROUP" "$AUTOMATION_ACCOUNT_NAME" "$HYBRID_WORKER_GROUP"
 }
 
+# The worker group keeps no tags, so the run-as credential to restore is the one Terraform creates (infra/automation.tf).
+worker_credential_name=cred-svc-azauto
+
 set_worker_system_account() {
-  local operation=$1 url document body
+  local operation=$1 url body
   url=$(worker_group_url)
-  # VERIFY: confirm the Hybrid Worker Group API version and `properties.credential` patch semantics before Azure use.
-  document=$(az rest --method get --url "$url")
-  body=$(python3 -c '
-import json, sys
-doc = json.load(sys.stdin)
-tags = doc.get("tags") or {}
-props = doc.get("properties") or {}
-if sys.argv[1] == "inject":
-    if "fault-original-credential" in tags:
-        raise SystemExit("Worker system-account fault is already active")
-    credential = props.get("credential")
-    if not credential or not credential.get("name"):
-        raise SystemExit("Worker group has no custom credential to restore")
-    tags["fault-original-credential"] = credential["name"]
-    body = {"properties": {"credential": None}, "tags": tags}
-else:
-    original = tags.pop("fault-original-credential", None)
-    if original is None:
-        print("{}")
-        raise SystemExit
-    body = {"properties": {"credential": {"name": original}}, "tags": tags}
-print(json.dumps(body))
-' "$operation" <<<"$document")
-  [[ "$body" != '{}' ]] || return 0
+  if [[ "$operation" == inject ]]; then
+    body='{"properties":{"credential":null}}'
+  else
+    body="{\"properties\":{\"credential\":{\"name\":\"$worker_credential_name\"}}}"
+  fi
   az rest --method patch --url "$url" --headers Content-Type=application/json --body "$body" --output none
 }
 

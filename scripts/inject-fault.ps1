@@ -268,36 +268,13 @@ function Get-WorkerGroupUrl {
 }
 
 function Set-WorkerSystemAccount {
+    # The worker group keeps no tags, so the run-as credential to restore is the one Terraform creates
+    # (infra/automation.tf).
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory)][ValidateSet('inject', 'restore')][string]$Action)
     $url = Get-WorkerGroupUrl
-    # VERIFY: confirm the Hybrid Worker Group API version and `properties.credential` patch semantics before Azure use.
-    $document = Invoke-AzCli -Arguments @('rest', '--method', 'get', '--url', $url) | ConvertFrom-Json
-    $tags = @{}
-    if ($document.tags) {
-        foreach ($property in $document.tags.PSObject.Properties) {
-            $tags[$property.Name] = $property.Value
-        }
-    }
-    $properties = @{}
-    if ($Action -eq 'inject') {
-        if ($tags.ContainsKey('fault-original-credential')) {
-            throw 'Worker system-account fault is already active'
-        }
-        if (-not $document.properties.credential.name) {
-            throw 'Worker group has no custom credential to restore'
-        }
-        $tags['fault-original-credential'] = $document.properties.credential.name
-        $properties.credential = $null
-    }
-    else {
-        if (-not $tags.ContainsKey('fault-original-credential')) {
-            return
-        }
-        $properties.credential = @{ name = $tags['fault-original-credential'] }
-        $tags.Remove('fault-original-credential')
-    }
-    $body = @{ properties = $properties; tags = $tags } | ConvertTo-Json -Depth 10 -Compress
+    $credential = if ($Action -eq 'inject') { $null } else { @{ name = 'cred-svc-azauto' } }
+    $body = @{ properties = @{ credential = $credential } } | ConvertTo-Json -Depth 5 -Compress
     if ($PSCmdlet.ShouldProcess($url, "Set worker credential for $Action")) {
         $null = Invoke-AzCli -Arguments @(
             'rest', '--method', 'patch', '--url', $url, '--headers', 'Content-Type=application/json',

@@ -114,7 +114,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
 assert state["worker_credential"] is None
-assert state["worker_group_tags"]["fault-original-credential"] == "svc-automation"
+assert state["worker_credential"] is None
 PY
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
 python3 - "$AZ_TEST_STATE" <<'PY'
@@ -123,8 +123,7 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
-assert state["worker_credential"] == "svc-automation"
-assert "fault-original-credential" not in state["worker_group_tags"]
+assert state["worker_credential"] == "cred-svc-azauto"
 PY
 
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
