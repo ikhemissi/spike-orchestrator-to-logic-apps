@@ -5,21 +5,19 @@ function Reset {}
 function Seed {}
 
 function Set-J3WorkflowState {
+    # Logic Apps Standard disables a workflow through its FlowState app setting (as scripts/pause-environment does).
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory)][ValidateSet('enable', 'disable')][string]$State)
 
     $environment = $script:ScenarioEnvironment
-    $subscription = [uri]::EscapeDataString($environment.AZURE_SUBSCRIPTION_ID)
-    $resourceGroup = [uri]::EscapeDataString($environment.AZURE_RESOURCE_GROUP)
-    $logicApp = [uri]::EscapeDataString($environment.LOGIC_APP_NAME)
-    $workflow = [uri]::EscapeDataString('wf-j3-convert-onprem')
-    $workflowUrl = "https://management.azure.com/subscriptions/$subscription/resourceGroups/$resourceGroup/providers/Microsoft.Web/sites/$logicApp/hostruntime/runtime/webhooks/workflow/api/management/workflows/$workflow"
-    if (-not $PSCmdlet.ShouldProcess($workflowUrl, "Set workflow state to $State")) {
+    $flowState = if ($State -eq 'enable') { 'Enabled' } else { 'Disabled' }
+    if (-not $PSCmdlet.ShouldProcess($environment.LOGIC_APP_NAME, "Set wf-j3-convert-onprem to $flowState")) {
         return
     }
-    # VERIFY: confirm the Standard workflow management API supports these enable/disable operations.
     Invoke-AzCommand -Arguments @(
-        'rest', '--method', 'post', '--url', "$workflowUrl/$State`?api-version=2018-11-01"
+        'logicapp', 'config', 'appsettings', 'set', '--name', $environment.LOGIC_APP_NAME,
+        '--resource-group', $environment.AZURE_RESOURCE_GROUP, '--subscription', $environment.AZURE_SUBSCRIPTION_ID,
+        '--settings', "Workflows.wf-j3-convert-onprem.FlowState=$flowState", '--output', 'none'
     ) | Out-Null
 }
 

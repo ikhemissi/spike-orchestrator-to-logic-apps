@@ -20,32 +20,66 @@ Two helper workflows support them: `wf-diag-egress-ip` reports the egress IP (T0
 
 ## The setup
 
-The Logic App Standard workflows run in Azure and handle partner transfers, NAS access, and scheduled jobs. A simulated partner VM accepts FTP and SFTP traffic through the Logic App subnet's NAT Gateway. For J3, Logic Apps starts an Azure Automation runbook on a Hybrid Runbook Worker VM; the worker uses a local CSV-to-JSON tool and accesses the simulated NAS. These Azure VMs and VNet peering represent the partner network and datacenter; production connectivity and identities will differ.
+The workflows run in Logic Apps Standard in Azure. Azure VMs stand in for the outside world: a Linux VM plays both partners (FTP and SFTP), and a peered VNet plays the datacenter, with a Windows NAS and Windows hybrid workers. Production connectivity and identities will differ. Each pattern has its own path:
 
-Workflow calls use the Logic App managed identity for Azure services, `nas01\svc-la` for NAS access from the File System connector, `hw01\svc-azauto` for worker SMB access, and the partner accounts for FTP/SFTP. The worker agent polls Automation over outbound HTTPS.
+### 1. Partner file transfer (J1, J2)
+
+The FTP and SFTP connectors leave Azure through the Logic App subnet's NAT Gateway, so the partner allow-lists a single IP.
 
 ```mermaid
 flowchart LR
-    LA["Logic Apps Standard"]
-    AA["Azure Automation"]
-    HW["Hybrid Runbook Worker"]
-    NAS["Simulated NAS"]
-    FTP["Partner A<br/>FTP"]
-    SFTP["Partner B<br/>SFTP"]
-    KV["Key Vault"]
-    Blob["Run reports and J2 fallback<br/>Blob storage"]
-
-    LA -->|"FTP as partner-a; egress via NAT"| FTP
-    LA -->|"SFTP as partner-b SSH key; egress via NAT"| SFTP
-    LA -->|"Create job as id-logicapp managed identity"| AA
-    LA -->|"Get job status as id-logicapp managed identity"| AA
-    LA -->|"Get job output as id-logicapp managed identity"| AA
-    HW -->|"Poll and report job over outbound HTTPS 443 (worker agent)"| AA
-    LA -->|"File System connector as nas01\\svc-la"| NAS
-    HW -->|"SMB as hw01\\svc-azauto"| NAS
-    LA -->|"Read secrets as id-logicapp managed identity"| KV
-    LA -->|"Write reports as id-logicapp managed identity"| Blob
+    subgraph Azure
+        LA["Logic Apps workflow<br/>J1, J2"]
+        NAT["NAT Gateway<br/>one egress IP"]
+        SP["SharePoint stand-in<br/>Blob container"]
+    end
+    subgraph Partners["Partners (simulated VM)"]
+        FTP["Partner A<br/>FTP, port 2121"]
+        SFTP["Partner B<br/>SFTP, port 2222"]
+    end
+    LA --> NAT
+    NAT -->|"J1, J2: read as partner-a"| FTP
+    NAT -->|"J1: write with partner-b's SSH key"| SFTP
+    LA -->|"J2: write as managed identity"| SP
 ```
+
+### 2. On-premises file share (J4, J5)
+
+The File System connector reaches the NAS through a file-share mount of the Logic App, over VNet integration and peering: no agent runs in the datacenter. J4 reads its source files from partner A over FTP, as in pattern 1.
+
+```mermaid
+flowchart LR
+    subgraph Azure
+        LA["Logic Apps workflow<br/>J4, J5"]
+    end
+    subgraph Datacenter["Datacenter (simulated, peered VNet)"]
+        NAS["NAS<br/>Windows, SMB share"]
+    end
+    LA -->|"File System connector as nas01\svc-la<br/>SMB 445"| NAS
+```
+
+### 3. Local tool on a hybrid worker (J3)
+
+J3 starts an Azure Automation runbook on the hybrid worker group and polls the job until it ends. The workers only make outbound calls to Automation; the job runs as a dedicated account that converts the files with a local tool on the NAS.
+
+```mermaid
+flowchart LR
+    subgraph Azure
+        LA["Logic Apps workflow<br/>J3"]
+        AA["Azure Automation<br/>runbook Invoke-ConvertAndMove"]
+    end
+    subgraph Datacenter["Datacenter (simulated, peered VNet)"]
+        HW["Hybrid workers hw01, hw02<br/>local CSV-to-JSON tool"]
+        NAS["NAS<br/>Windows, SMB share"]
+    end
+    LA -->|"create job, poll status, read output<br/>as managed identity"| AA
+    HW -->|"pick up jobs<br/>outbound HTTPS 443"| AA
+    HW -->|"SMB as svc-azauto"| NAS
+```
+
+### Shared by the three patterns
+
+Every workflow uses the Logic App's managed identity (`id-logicapp`) to read the partner secrets from Key Vault and to write its run report to Blob storage, and sends its logs to Log Analytics, where five alert rules and a trace workbook use the run's correlation ID.
 
 ## Key findings
 
