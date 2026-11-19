@@ -1,5 +1,12 @@
-// VERIFY: LogicAppWorkflowRuntime table and ActionName, Status, and TimeGenerated columns.
+// Failed calls to the partner's FTP and SFTP servers. The logs carry no connector type, so the partner actions are
+// named: every connector action of J1 (partner FTP to partner SFTP) and the FTP-side actions of J2 and J4.
+// NotFound and Conflict are normal file-state answers; ActionFailed only passes on a failure from inside a scope.
+let PartnerSideActions = dynamic(["List_source_files", "Get_source_content", "Archive_source", "Delete_source"]);
+let ConnectionErrorCodes = dynamic(["BadRequest", "Unauthorized", "Forbidden", "BadGateway", "ServiceUnavailable", "GatewayTimeout"]);
 LogicAppWorkflowRuntime
 | where TimeGenerated >= ago(15m)
-| where ActionName has_any ("FTP", "SFTP")
-| summarize FailedActions = countif(Status == "Failed")
+| where OperationName == "WorkflowActionCompleted" and Status == "Failed"
+| where Code in (ConnectionErrorCodes)
+| where WorkflowName == "wf-j1-partner-ftp-to-sftp"
+    or (WorkflowName in ("wf-j2-ftp-to-sharepoint", "wf-j4-ftp-sort-to-nas") and ActionName in (PartnerSideActions))
+| summarize FailedActions = count()

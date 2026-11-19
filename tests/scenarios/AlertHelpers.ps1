@@ -30,7 +30,8 @@ function Wait-ScenarioAlert {
     param(
         [Parameter(Mandatory)][string]$RuleName,
         [Parameter(Mandatory)][datetime]$NotBefore,
-        [timespan]$Timeout = ([timespan]::FromMinutes(10)),
+        # Log rules run every 5 minutes on logs ingested a few minutes late: alerts fired 15-20 minutes after the failure.
+        [timespan]$Timeout = ([timespan]::FromMinutes(25)),
         [timespan]$PollInterval = ([timespan]::FromSeconds(30))
     )
 
