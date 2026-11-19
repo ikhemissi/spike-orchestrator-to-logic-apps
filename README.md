@@ -35,8 +35,14 @@ flowchart LR
 
 ## Key findings
 
-TODO: once the first experiments are done, one line per question (a table), and a diagram of the most important
-behaviour when it helps (a `sequenceDiagram`).
+| Question | Key finding | Status |
+|---|---|---|
+| Q1 | Live tests demonstrate partner transfers, direct NAS access, folder polling, and local-tool execution on a Hybrid Worker; full rebuild and several scenarios remain. | Partly answered |
+| Q2 | NAT egress, J1 delivery and duplicate skipping, allow-list recovery, and J2 to Blob passed; the wrong-password scenario is pending. | Partly answered |
+| Q3 | J4 NAS sorting and J5 folder polling passed; NAS-unreachable testing is pending. | Partly answered |
+| Q4 | J3 conversion, duplicate skipping, per-file failure reporting, and offline-worker timeout passed; Local System and failover tests are pending. | Partly answered |
+| Q5 | Duplicate skipping and correlation-ID run reports passed; alert tests are pending. | Partly answered |
+| Q6 | The scripted Terraform/azd deployment path and specification VERIFY items were checked; the full rebuild remains pending. | Partly answered |
 
 The answers to every question, with the evidence: **[docs/FINDINGS.md](docs/FINDINGS.md)**.
 
