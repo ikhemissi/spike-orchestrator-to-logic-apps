@@ -4,23 +4,17 @@ function Test-ScenarioAlertFired {
         [Parameter(Mandatory)][datetime]$NotBefore
     )
 
-    # VERIFY: confirm the Alerts Management API version and fired-time response fields.
+    # Log alerts often resolve within minutes, so resolved alerts count too. The alert names its rule by resource ID.
     $subscription = [uri]::EscapeDataString($script:ScenarioEnvironment.AZURE_SUBSCRIPTION_ID)
     $resourceGroup = [uri]::EscapeDataString($script:ScenarioEnvironment.AZURE_RESOURCE_GROUP)
-    $url = "https://management.azure.com/subscriptions/$subscription/providers/Microsoft.AlertsManagement/alerts?api-version=2019-03-01&targetResourceGroup=$resourceGroup&monitorCondition=Fired"
+    $url = "https://management.azure.com/subscriptions/$subscription/providers/Microsoft.AlertsManagement/alerts?api-version=2019-05-05-preview&targetResourceGroup=$resourceGroup&timeRange=1d"
     $response = (Invoke-AzCommand -Arguments @('rest', '--method', 'get', '--url', $url)) -join "`n"
     $alerts = ConvertFrom-Json -InputObject $response -AsHashtable
     $matchingAlerts = @($alerts.value | Where-Object {
-        $alertRule = $_.properties.essentials.alertRule
-        if (-not $alertRule) {
-            $alertRule = $_.properties.alertRule
-        }
-        $firedAt = $_.properties.essentials.firedDateTime
-        if (-not $firedAt) {
-            $firedAt = $_.properties.firedDateTime
-        }
-        $alertRule -eq $RuleName -and $firedAt -and
-        [datetime]::Parse($firedAt).ToUniversalTime() -ge $NotBefore.ToUniversalTime()
+        $essentials = $_.properties.essentials
+        $ruleId = [string]$essentials.alertRule
+        $ruleId.Split('/')[-1] -eq $RuleName -and $essentials.startDateTime -and
+        ([datetime]$essentials.startDateTime).ToUniversalTime() -ge $NotBefore.ToUniversalTime()
     })
     return $matchingAlerts.Count -gt 0
 }
