@@ -22,62 +22,89 @@ Two helper workflows support them: `wf-diag-egress-ip` reports the egress IP (T0
 
 The workflows run in Logic Apps Standard in Azure. Azure VMs stand in for the outside world: a Linux VM plays both partners (FTP and SFTP), and a peered VNet plays the datacenter, with a Windows NAS and Windows hybrid workers. Production connectivity and identities will differ. Each pattern has its own path:
 
-### 1. Partner file transfer (J1, J2)
+Every job starts on a schedule (a Recurrence trigger). J1–J4 run every `JOB_RECURRENCE_MINUTES` minutes (app setting, default 15). J5 stands in for a "file arrived" event by polling its folder every minute, because the File System trigger did not load with the mount-based connection ([D11](docs/DECISIONS.md)). At the end of every run, the job calls `wf-child-run-report`, which writes a run report with the run's correlation ID to Blob storage.
 
-The FTP and SFTP connectors leave Azure through the Logic App subnet's NAT Gateway, so the partner allow-lists a single IP.
+### J1: partner A to partner B (pattern 1)
 
 ```mermaid
 flowchart LR
-    subgraph Azure
-        LA["Logic Apps workflow<br/>J1, J2"]
-        NAT["NAT Gateway<br/>one egress IP"]
-        SP["SharePoint stand-in<br/>Blob container"]
+    T(["Schedule<br/>every 15 min"]) --> J1["J1 workflow<br/>wf-j1-partner-ftp-to-sftp"]
+    subgraph Partners["Partners (simulated VM), reached through the NAT egress IP"]
+        SRC["Partner A, FTP<br/>/outbound/j1"]
+        DST["Partner B, SFTP<br/>/inbound"]
+        ARC["Partner A, FTP<br/>/outbound/archive"]
     end
-    subgraph Partners["Partners (simulated VM)"]
-        FTP["Partner A<br/>FTP, port 2121"]
-        SFTP["Partner B<br/>SFTP, port 2222"]
-    end
-    LA --> NAT
-    NAT -->|"J1, J2: read as partner-a"| FTP
-    NAT -->|"J1: write with partner-b's SSH key"| SFTP
-    LA -->|"J2: write as managed identity"| SP
+    J1 -->|"① list and read the CSV files"| SRC
+    J1 -->|"② upload as .partial, then rename<br/>(skip files already delivered)"| DST
+    J1 -->|"③ archive, then delete the source"| ARC
 ```
 
-### 2. On-premises file share (J4, J5)
-
-The File System connector reaches the NAS through a file-share mount of the Logic App, over VNet integration and peering: no agent runs in the datacenter. J4 reads its source files from partner A over FTP, as in pattern 1.
+### J2: partner A to SharePoint (pattern 1)
 
 ```mermaid
 flowchart LR
+    T(["Schedule<br/>every 15 min"]) --> J2["J2 workflow<br/>wf-j2-ftp-to-sharepoint"]
+    subgraph Partners["Partners (simulated VM), reached through the NAT egress IP"]
+        SRC["Partner A, FTP<br/>/outbound/j2"]
+        ARC["Partner A, FTP<br/>/outbound/archive"]
+    end
     subgraph Azure
-        LA["Logic Apps workflow<br/>J4, J5"]
+        SP["SharePoint stand-in<br/>Blob container sharepoint-sim"]
     end
-    subgraph Datacenter["Datacenter (simulated, peered VNet)"]
-        NAS["NAS<br/>Windows, SMB share"]
-    end
-    LA -->|"File System connector as nas01\svc-la<br/>SMB 445"| NAS
+    J2 -->|"① list and read the files"| SRC
+    J2 -->|"② write as managed identity"| SP
+    J2 -->|"③ archive, then delete the source"| ARC
 ```
 
-### 3. Local tool on a hybrid worker (J3)
-
-J3 starts an Azure Automation runbook on the hybrid worker group and polls the job until it ends. The workers only make outbound calls to Automation; the job runs as a dedicated account that converts the files with a local tool on the NAS.
+### J3: convert files with a local tool on a hybrid worker (pattern 3)
 
 ```mermaid
 flowchart LR
+    T(["Schedule<br/>every 15 min"]) --> J3["J3 workflow<br/>wf-j3-convert-onprem"]
     subgraph Azure
-        LA["Logic Apps workflow<br/>J3"]
         AA["Azure Automation<br/>runbook Invoke-ConvertAndMove"]
     end
     subgraph Datacenter["Datacenter (simulated, peered VNet)"]
-        HW["Hybrid workers hw01, hw02<br/>local CSV-to-JSON tool"]
-        NAS["NAS<br/>Windows, SMB share"]
+        HW["Hybrid worker hw01 or hw02<br/>local CSV-to-JSON tool"]
+        NAS["NAS share<br/>j3\in → j3\out, j3\archive"]
     end
-    LA -->|"create job, poll status, read output<br/>as managed identity"| AA
-    HW -->|"pick up jobs<br/>outbound HTTPS 443"| AA
-    HW -->|"SMB as svc-azauto"| NAS
+    J3 -->|"① create the job<br/>② poll its status, up to 5 min<br/>③ read its JSON result"| AA
+    HW -->|"pick up the job<br/>outbound HTTPS 443"| AA
+    HW -->|"convert, write JSON, archive<br/>SMB as svc-azauto"| NAS
 ```
 
-### Shared by the three patterns
+### J4: partner A to sorted NAS folders (patterns 1 and 2)
+
+```mermaid
+flowchart LR
+    T(["Schedule<br/>every 15 min"]) --> J4["J4 workflow<br/>wf-j4-ftp-sort-to-nas"]
+    subgraph Partners["Partners (simulated VM), reached through the NAT egress IP"]
+        SRC["Partner A, FTP<br/>/outbound/j4"]
+    end
+    subgraph Datacenter["Datacenter (simulated, peered VNet)"]
+        NAS["NAS share<br/>j4\finance, j4\documents,<br/>j4\integration, j4\quarantine"]
+    end
+    J4 -->|"① check the NAS is reachable"| NAS
+    J4 -->|"② list and read the files"| SRC
+    J4 -->|"③ write each file to the folder for its type<br/>(unknown types to quarantine)"| NAS
+    J4 -->|"④ archive, then delete the source"| SRC
+```
+
+### J5: NAS folder watch (pattern 2)
+
+```mermaid
+flowchart LR
+    T(["Folder poll<br/>every 1 min"]) --> J5["J5 workflow<br/>wf-j5-nas-folderwatch"]
+    subgraph Datacenter["Datacenter (simulated, peered VNet)"]
+        IN["NAS share<br/>folderwatch\in"]
+        OUT["NAS share<br/>folderwatch\processed"]
+    end
+    J5 -->|"① list new files"| IN
+    J5 -->|"② copy each file"| OUT
+    J5 -->|"③ delete the original"| IN
+```
+
+### Shared by all jobs
 
 Every workflow uses the Logic App's managed identity (`id-logicapp`) to read the partner secrets from Key Vault and to write its run report to Blob storage, and sends its logs to Log Analytics, where five alert rules and a trace workbook use the run's correlation ID.
 
