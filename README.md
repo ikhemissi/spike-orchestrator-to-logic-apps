@@ -2,7 +2,21 @@
 
 **Question:** Can scheduled and folder-monitoring System Center Orchestrator jobs, including jobs that use on-premises file shares and local tools, run on Azure Logic Apps Standard with Azure Automation hybrid workers, reliably, idempotently and observably?
 
-**Time box:** Ready by 2026-11-23 · **Status:** in progress
+**Time box:** Ready by 2026-11-23 · **Status:** live tests done except T16 and the rebuild from scratch (2026-11-19) · **Hand-off:** [docs/HANDOFF.md](docs/HANDOFF.md)
+
+![The spike evaluates three separate patterns. 1, partner file transfer: a Logic Apps workflow uses the FTP and SFTP connectors through a NAT Gateway, so partners allow-list one egress IP, and can deliver to SharePoint (a Blob container stands in). 2, on-premises file share: a workflow reads and writes a datacenter NAS over SMB with the File System connector, with no agent on-premises. 3, local tool on a hybrid worker: a workflow starts an Azure Automation runbook that runs a local tool on one of two Windows hybrid workers, as a dedicated account, and polls the job. Shared by all three: Key Vault, a correlation ID and a run report for every run, and Log Analytics with five alert rules and a trace workbook. On 19 November 2026 all three pass their happy paths and failure scenarios; the did-not-run alert test and the rebuild from scratch are pending.](docs/overview.svg)
+
+## The three patterns
+
+The spike evaluates three integration patterns separately. Five Orchestrator jobs from the specification exercise them:
+
+| Pattern | Question | Jobs (workflows) | Scenarios |
+|---|---|---|---|
+| **1. Partner file transfer** | Do the built-in FTP and SFTP connectors work from one stable IP that partners can allow-list? | **J1** partner A FTP → partner B SFTP (`wf-j1-partner-ftp-to-sftp`); **J2** partner A FTP → SharePoint, Blob stand-in (`wf-j2-ftp-to-sharepoint`) | T01–T05, T14 |
+| **2. On-premises file share** | Can Logic Apps read and write a datacenter file share directly, with no agent on-premises? | **J4** partner A FTP → NAS folders by file type (`wf-j4-ftp-sort-to-nas`); **J5** NAS folder watch (`wf-j5-nas-folderwatch`) | T06, T07, T18 |
+| **3. Local tool on a hybrid worker** | Can Logic Apps run a local tool on a datacenter server, as a dedicated account, and see failures? | **J3** CSV → JSON with a local tool on a hybrid worker (`wf-j3-convert-onprem`, runbook `Invoke-ConvertAndMove`) | T08–T13, T16, T17 |
+
+Two helper workflows support them: `wf-diag-egress-ip` reports the egress IP (T01), and `wf-child-run-report` writes the run report of every job run (T15). J4 also reads from the partner FTP server, so it touches pattern 1 too.
 
 ## The setup
 
@@ -37,12 +51,12 @@ flowchart LR
 
 | Question | Key finding | Status |
 |---|---|---|
-| Q1 | Live tests demonstrate partner transfers, direct NAS access, folder polling, and local-tool execution on a Hybrid Worker; full rebuild and several scenarios remain. | Partly answered |
-| Q2 | NAT egress, J1 delivery and duplicate skipping, allow-list recovery, and J2 to Blob passed; the wrong-password scenario is pending. | Partly answered |
-| Q3 | J4 NAS sorting and J5 folder polling passed; NAS-unreachable testing is pending. | Partly answered |
-| Q4 | J3 conversion, duplicate skipping, per-file failure reporting, and offline-worker timeout passed; Local System and failover tests are pending. | Partly answered |
-| Q5 | Duplicate skipping and correlation-ID run reports passed; alert tests are pending. | Partly answered |
-| Q6 | The scripted Terraform/azd deployment path and specification VERIFY items were checked; the full rebuild remains pending. | Partly answered |
+| Q1 | All five job patterns run on Logic Apps Standard with Automation hybrid workers, idempotently, with a correlation ID, a run report and alerts per run. The rebuild from scratch remains. | Partly answered |
+| Q2 | Partners see one NAT egress IP. J1 delivers with `.partial` + rename and skips duplicates; a blocked IP or a wrong password fails the run with a clear error and an alert. J2 writes to a Blob stand-in for SharePoint. | Answered |
+| Q3 | J4 and J5 read and write the NAS over VNet integration through a file-share mount, with no on-premises agent. An unreachable NAS fails J4 before any file moves. J5 polls, because the File System trigger did not load with the mount-based connection. | Answered |
+| Q4 | J3 starts a runbook on a hybrid worker that converts files with a local tool as a dedicated account; bad files, Local System, an offline worker and failover to a second worker are all detected or handled. | Answered |
+| Q5 | Re-runs skip handled files. Failed workflows, failed runbooks, stuck jobs and missed deadlines raised alerts; the workbook traces a correlation ID through Logic Apps and the Automation job. The did-not-run test (T16) is pending. | Partly answered |
+| Q6 | Terraform through azd provisions everything and `deploy-logicapp` deploys the workflows; the rebuild from an empty subscription is pending. | Partly answered |
 
 The answers to every question, with the evidence: **[docs/FINDINGS.md](docs/FINDINGS.md)**.
 
@@ -55,6 +69,10 @@ The answers to every question, with the evidence: **[docs/FINDINGS.md](docs/FIND
 | [Questions](docs/QUESTIONS.md) | What the spike must answer, and the status of each question |
 | [Experiments](docs/experiments/README.md) | One file per experiment, numbered |
 | [Findings](docs/FINDINGS.md) | The answers, with links to the evidence |
+| [Hand-off](docs/HANDOFF.md) | State, how to run it, what is tested and what is not, next steps |
+| [Architecture](docs/ARCHITECTURE.md) | Components, identities and network paths |
+| [Test report](docs/TEST-REPORT.md) | The last scenario run |
+| [CI/CD](docs/CICD.md) | How the checks and deployment would run in a pipeline |
 | [Retest plan](docs/RETEST-PLAN.md) | What to run again when a product changes |
 | [Demo runbook](docs/DEMO-RUNBOOK.md) | How to show the results |
 
@@ -155,7 +173,7 @@ pwsh -File tests/run-all.ps1 -IncludeAlerts
 pwsh -File tests/run-all.ps1 -Only T16,T17 -IncludeAlerts
 ```
 
-When scenario scripts are present under `tests/scenarios/`, the runner prints a summary and writes the results to [docs/TEST-REPORT.md](docs/TEST-REPORT.md). A full run checks the mandatory scenarios; `-Only` runs only the requested scenarios. This checkout does not yet include the live scenario scripts, so the commands cannot run the Azure scenarios or produce the report until those files are added.
+When scenario scripts are present under `tests/scenarios/`, the runner prints a summary and writes the results to [docs/TEST-REPORT.md](docs/TEST-REPORT.md). A full run checks the mandatory scenarios; `-Only` runs only the requested scenarios.
 
 ## Run the experiments' code
 

@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Three integration patterns for moving Orchestrator jobs to Logic Apps Standard</title>
+  <desc id="desc">The spike evaluates three separate patterns, each with its own question. Pattern 1, partner file transfer: a Logic Apps workflow uses the built-in FTP and SFTP connectors to reach simulated partner servers through a NAT Gateway, so partners allow-list one egress IP, and can deliver to SharePoint, simulated by Blob storage. Tested: delivery with a temporary name and rename, re-runs that skip duplicates, and a blocked IP or a wrong password failing the run with an alert. Pattern 2, on-premises file share: a workflow uses the File System connector to read and write a Windows NAS in a simulated datacenter over SMB port 445, through VNet integration and peering, with no agent on-premises. Tested: files sorted into folders, a folder watch by polling, and an unreachable NAS failing the run before any file moves. Pattern 3, local tool on a hybrid worker: a workflow starts an Azure Automation runbook and polls the job; two Windows hybrid runbook workers in the datacenter poll Automation over outbound HTTPS and run a local conversion tool against the NAS as a dedicated account. Tested: output identical to the expected files, re-runs that skip, a bad file, a job running as Local System, an offline worker, and failover to the second worker. Shared by all three: Key Vault for partner secrets, a correlation ID and a run report in Blob storage for every run, and Log Analytics with five alert rules and a workbook that traces a correlation ID. Live results on 19 November 2026: all three patterns pass their happy paths and failure scenarios; the did-not-run alert test and the rebuild from scratch are pending.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3d4466"/>
+    </marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#138a7a"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1b1f3b" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <style>
+    text { fill: #1b1f3b; }
+    .title { font-size: 30px; font-weight: 700; }
+    .subtitle { font-size: 17px; fill: #4a5072; }
+    .column { font-size: 15px; font-weight: 700; fill: #3d4466; }
+    .pattern { font-size: 17px; font-weight: 700; }
+    .question { font-size: 13.5px; fill: #4a5072; font-style: italic; }
+    .badge { font-size: 16px; font-weight: 700; fill: #ffffff; }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .kind { font-size: 12.5px; fill: #4a5072; }
+    .edge { font-size: 12.5px; fill: #3d4466; font-weight: 600; }
+    .teal { font-size: 12.5px; fill: #138a7a; font-weight: 600; }
+    .tested { font-size: 13px; fill: #1b1f3b; }
+    .testedhead { font-size: 13px; font-weight: 700; }
+    .shared { font-size: 13.5px; fill: #1b1f3b; }
+    .sharedhead { font-size: 14px; font-weight: 700; }
+    .result { font-size: 14px; fill: #1b1f3b; }
+  </style>
+
+  <rect width="1200" height="760" fill="#f7f8fc"/>
+
+  <text class="title" x="36" y="52">Three patterns for Orchestrator jobs on Logic Apps</text>
+  <text class="subtitle" x="36" y="82">Each pattern answers its own question; each was tested live against simulated partners and a datacenter.</text>
+
+  <!-- Column headings and separators -->
+  <text class="column" x="150" y="120" text-anchor="middle">Partners (simulated)</text>
+  <text class="column" x="596" y="120" text-anchor="middle">Azure</text>
+  <text class="column" x="1048" y="120" text-anchor="middle">Datacenter (simulated)</text>
+
+  <!-- Pattern 1: partner file transfer -->
+  <rect x="24" y="132" width="1152" height="152" rx="14" fill="#eaf2fb" stroke="#0b5cad" stroke-width="1.5"/>
+  <circle cx="54" cy="160" r="15" fill="#0b5cad"/>
+  <text class="badge" x="54" y="166" text-anchor="middle">1</text>
+  <text class="pattern" x="80" y="166" style="fill:#0b5cad">Partner file transfer</text>
+  <text class="question" x="400" y="166">Do the built-in FTP and SFTP connectors work from one stable IP that partners can allow-list?</text>
+
+  <rect x="44" y="188" width="212" height="64" rx="10" fill="#ffffff" stroke="#3d4466" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="150" y="212" text-anchor="middle">Partner servers</text>
+  <text class="kind" x="150" y="232" text-anchor="middle">FTP in, SFTP out</text>
+
+  <rect x="316" y="188" width="110" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="371" y="212" text-anchor="middle">NAT</text>
+  <text class="kind" x="371" y="232" text-anchor="middle">one egress IP</text>
+
+  <rect x="480" y="188" width="232" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="2" filter="url(#shadow)"/>
+  <text class="name" x="596" y="212" text-anchor="middle">Logic Apps workflow</text>
+  <text class="kind" x="596" y="232" text-anchor="middle">FTP and SFTP connectors</text>
+
+  <rect x="740" y="188" width="150" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="815" y="212" text-anchor="middle">SharePoint</text>
+  <text class="kind" x="815" y="232" text-anchor="middle">Blob stand-in</text>
+
+  <line x1="480" y1="220" x2="430" y2="220" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="316" y1="220" x2="260" y2="220" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="712" y1="220" x2="736" y2="220" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text class="testedhead" x="44" y="272">Tested:</text>
+  <text class="tested" x="98" y="272">delivery under a temporary name then rename, re-runs skip duplicates, a blocked IP or a wrong password fails the run and alerts.</text>
+
+  <!-- Pattern 2: on-premises file share -->
+  <rect x="24" y="296" width="1152" height="152" rx="14" fill="#e6f4f1" stroke="#138a7a" stroke-width="1.5"/>
+  <circle cx="54" cy="324" r="15" fill="#138a7a"/>
+  <text class="badge" x="54" y="330" text-anchor="middle">2</text>
+  <text class="pattern" x="80" y="330" style="fill:#138a7a">On-premises file share</text>
+  <text class="question" x="400" y="330">Can Logic Apps read and write a datacenter file share directly, with no agent on-premises?</text>
+
+  <rect x="480" y="352" width="232" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="2" filter="url(#shadow)"/>
+  <text class="name" x="596" y="376" text-anchor="middle">Logic Apps workflow</text>
+  <text class="kind" x="596" y="396" text-anchor="middle">File System connector</text>
+
+  <rect x="940" y="352" width="216" height="64" rx="10" fill="#ffffff" stroke="#3d4466" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="1048" y="376" text-anchor="middle">NAS</text>
+  <text class="kind" x="1048" y="396" text-anchor="middle">Windows, SMB share</text>
+
+  <line x1="712" y1="384" x2="936" y2="384" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge" x="824" y="374" text-anchor="middle">SMB 445 over the network</text>
+
+  <text class="testedhead" x="44" y="436">Tested:</text>
+  <text class="tested" x="98" y="436">files sorted into folders, a folder watch by polling, an unreachable NAS fails the run before any file moves.</text>
+
+  <!-- Pattern 3: local tool on a hybrid worker -->
+  <rect x="24" y="460" width="1152" height="152" rx="14" fill="#fcf1e3" stroke="#b0670a" stroke-width="1.5"/>
+  <circle cx="54" cy="488" r="15" fill="#b0670a"/>
+  <text class="badge" x="54" y="494" text-anchor="middle">3</text>
+  <text class="pattern" x="80" y="494" style="fill:#b0670a">Local tool on a hybrid worker</text>
+  <text class="question" x="400" y="494">Can Logic Apps run a local tool on a datacenter server, as a dedicated account, and see failures?</text>
+
+  <rect x="480" y="516" width="232" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="2" filter="url(#shadow)"/>
+  <text class="name" x="596" y="540" text-anchor="middle">Logic Apps workflow</text>
+  <text class="kind" x="596" y="560" text-anchor="middle">starts a job, polls it</text>
+
+  <rect x="740" y="516" width="150" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="815" y="540" text-anchor="middle">Automation</text>
+  <text class="kind" x="815" y="560" text-anchor="middle">runbook</text>
+
+  <rect x="940" y="516" width="216" height="64" rx="10" fill="#ffffff" stroke="#3d4466" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="1048" y="540" text-anchor="middle">Two hybrid workers</text>
+  <text class="kind" x="1048" y="560" text-anchor="middle">Windows, local tool</text>
+
+  <line x1="712" y1="548" x2="736" y2="548" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="940" y1="548" x2="894" y2="548" stroke="#138a7a" stroke-width="2" marker-end="url(#arrow-teal)"/>
+  <text class="teal" x="917" y="538" text-anchor="middle">443</text>
+  <line x1="1048" y1="516" x2="1048" y2="420" stroke="#138a7a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-teal)"/>
+  <text class="teal" x="1036" y="436" text-anchor="end">the tool reads and writes the NAS</text>
+
+  <text class="testedhead" x="44" y="600">Tested:</text>
+  <text class="tested" x="98" y="600">output identical to the expected files, re-runs skip, a bad file, Local System run-as, an offline worker, failover to the second worker.</text>
+
+  <!-- Shared by all three -->
+  <rect x="24" y="626" width="1152" height="62" rx="12" fill="#ffffff" stroke="#8a90ad" stroke-width="1.2"/>
+  <text class="sharedhead" x="44" y="652">Shared by all three</text>
+  <text class="shared" x="196" y="652">Key Vault for partner secrets · a correlation ID and a run report in Blob storage for every run</text>
+  <text class="shared" x="196" y="674">Log Analytics: five alert rules, and a workbook that traces a correlation ID across Logic Apps and Automation</text>
+
+  <!-- Results -->
+  <text class="result" x="36" y="718"><tspan font-weight="700">Live results, 19 November 2026:</tspan> all three patterns pass their happy paths and failure scenarios.</text>
+  <text class="result" x="36" y="740">Pending: the did-not-run alert test and the rebuild from scratch.</text>
+</svg>
