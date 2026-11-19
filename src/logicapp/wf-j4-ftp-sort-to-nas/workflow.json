@@ -300,7 +300,13 @@
                   ]
                 },
                 "retryPolicy": {
-                  "type": "none"
+                  "type": "exponential",
+                  "count": 2,
+                  "interval": "PT10S",
+                  "maximumInterval": "PT1M"
+                },
+                "limit": {
+                  "timeout": "PT2M"
                 }
               },
               "Target_already_exists": {
@@ -387,9 +393,12 @@
                           },
                           "retryPolicy": {
                             "type": "exponential",
-                            "count": 4,
-                            "interval": "PT15S",
-                            "maximumInterval": "PT5M"
+                            "count": 2,
+                            "interval": "PT10S",
+                            "maximumInterval": "PT1M"
+                          },
+                          "limit": {
+                            "timeout": "PT2M"
                           },
                           "runtimeConfiguration": {
                             "secureData": {
@@ -450,9 +459,12 @@
                       "runAfter": {},
                       "retryPolicy": {
                         "type": "exponential",
-                        "count": 4,
-                        "interval": "PT15S",
-                        "maximumInterval": "PT5M"
+                        "count": 2,
+                        "interval": "PT10S",
+                        "maximumInterval": "PT1M"
+                      },
+                      "limit": {
+                        "timeout": "PT2M"
                       },
                       "runtimeConfiguration": {
                         "secureData": {
