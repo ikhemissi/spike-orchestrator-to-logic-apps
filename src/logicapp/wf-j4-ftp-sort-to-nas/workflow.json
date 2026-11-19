@@ -136,6 +136,24 @@
       "Scope_Try": {
         "type": "Scope",
         "actions": {
+          "Check_NAS_reachable": {
+            "type": "ServiceProvider",
+            "description": "One NAS call before any file is moved: an unreachable NAS fails the run after a single timeout instead of one per file.",
+            "inputs": {
+              "parameters": {
+                "folderPath": "j4"
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "fileSystemNas",
+                "operationId": "listFolder",
+                "serviceProviderId": "/serviceProviders/FileSystem"
+              }
+            },
+            "runAfter": {},
+            "retryPolicy": {
+              "type": "none"
+            }
+          },
           "List_source_files": {
             "type": "ServiceProvider",
             "inputs": {
@@ -148,7 +166,11 @@
                 "serviceProviderId": "/serviceProviders/Ftp"
               }
             },
-            "runAfter": {},
+            "runAfter": {
+              "Check_NAS_reachable": [
+                "Succeeded"
+              ]
+            },
             "retryPolicy": {
               "type": "exponential",
               "count": 4,
@@ -300,22 +322,19 @@
                   ]
                 },
                 "retryPolicy": {
-                  "type": "exponential",
-                  "count": 2,
-                  "interval": "PT10S",
-                  "maximumInterval": "PT1M"
-                },
-                "limit": {
-                  "timeout": "PT2M"
+                  "type": "none"
                 }
               },
               "Target_already_exists": {
                 "type": "If",
+                "description": "Only a confirmed NotFound means a new file; any other lookup error (NAS unreachable) takes the conflict path, which never overwrites and fails if the NAS is down.",
                 "expression": {
-                  "equals": [
-                    "@actions('Get_target_metadata')?['status']",
-                    "Succeeded"
-                  ]
+                  "not": {
+                    "equals": [
+                      "@outputs('Get_target_metadata')?['statusCode']",
+                      "NotFound"
+                    ]
+                  }
                 },
                 "actions": {
                   "Target_has_same_size": {
@@ -397,9 +416,6 @@
                             "interval": "PT10S",
                             "maximumInterval": "PT1M"
                           },
-                          "limit": {
-                            "timeout": "PT2M"
-                          },
                           "runtimeConfiguration": {
                             "secureData": {
                               "properties": [
@@ -462,9 +478,6 @@
                         "count": 2,
                         "interval": "PT10S",
                         "maximumInterval": "PT1M"
-                      },
-                      "limit": {
-                        "timeout": "PT2M"
                       },
                       "runtimeConfiguration": {
                         "secureData": {

@@ -55,7 +55,7 @@ mapfile -t commands < "$AZ_TEST_LOG"
 [[ "${commands[0]}" == "logicapp deployment source config-zip --resource-group rg-test --name logicapp-test --src "* ]]
 [[ "${commands[1]}" == "logicapp restart --resource-group rg-test --name logicapp-test" ]]
 [[ "${commands[2]}" == "account show --query id --output tsv" ]]
-[[ "${commands[3]}" == "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-test/providers/Microsoft.Web/sites/logicapp-test/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01" ]]
+[[ "${commands[3]}" == "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-test/providers/Microsoft.Web/sites/logicapp-test/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01 --query [?health.state!='Healthy'].{workflow: name, error: health.errorMessage.error.message} --output tsv" ]]
 
 python3 - "$AZ_TEST_ZIP_COPY" <<'PY'
 import sys

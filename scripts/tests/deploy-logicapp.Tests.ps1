@@ -62,7 +62,7 @@ Describe 'deploy-logicapp.ps1' {
         $commands[0] | Should -Match '^logicapp deployment source config-zip --resource-group rg-test --name logicapp-test --src '
         $commands[1] | Should -Be 'logicapp restart --resource-group rg-test --name logicapp-test'
         $commands[2] | Should -Be 'account show --query id --output tsv'
-        $commands[3] | Should -Be 'rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-test/providers/Microsoft.Web/sites/logicapp-test/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01'
+        $commands[3] | Should -Be 'rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-test/providers/Microsoft.Web/sites/logicapp-test/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01 --output tsv --query [?health.state!=''Healthy''].{workflow: name, error: health.errorMessage.error.message}'
 
         Add-Type -AssemblyName System.IO.Compression
         $archive = [System.IO.Compression.ZipFile]::OpenRead($env:AZ_TEST_ZIP_COPY)

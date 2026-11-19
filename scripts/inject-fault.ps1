@@ -185,12 +185,27 @@ function Invoke-NasBlock {
         '--source-address-prefixes', "$subnetPrefix",
         '--destination-address-prefixes', "$nasIp/32", '--destination-port-ranges', '445', '--output', 'none'
     )
-    Restart-LogicAppForNasMount
+    Restart-NasSmbServer
+}
+
+function Restart-NasSmbServer {
+    # NSGs are stateful and the platform keeps the share mounted across app restarts, so the NAS restarts its
+    # SMB server, which drops the open connections (closing only the SMB sessions keeps them): the client has to
+    # reconnect, and the new rule blocks that.
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+    if (-not $PSCmdlet.ShouldProcess((Get-Setting NAS_VM_NAME), 'Restart the SMB server')) {
+        return
+    }
+    $null = Invoke-AzCli -Arguments @(
+        'vm', 'run-command', 'invoke', '--resource-group', (Get-Setting AZURE_RESOURCE_GROUP),
+        '--subscription', (Get-Setting AZURE_SUBSCRIPTION_ID), '--name', (Get-Setting NAS_VM_NAME),
+        '--command-id', 'RunPowerShellScript', '--scripts', 'Restart-Service -Name LanmanServer -Force', '--output', 'none'
+    )
 }
 
 function Restart-LogicAppForNasMount {
-    # The NAS is a file-share mount of the Logic App; an open SMB session survives a new NSG rule (NSGs are stateful),
-    # so the app restarts to mount the share again through the changed rules.
+    # The NAS is a file-share mount of the Logic App: after the block is lifted, the app restarts to mount it again.
     [CmdletBinding(SupportsShouldProcess = $true)]
     param()
     if (-not $PSCmdlet.ShouldProcess((Get-Setting LOGIC_APP_NAME), 'Restart')) {
@@ -301,125 +316,46 @@ function Restore-NasBlock {
     Restart-LogicAppForNasMount
 }
 
-function Set-FtpPasswordSecret {
+# The Logic App reads the partner password through a Key Vault reference, which it caches: changing the secret has no
+# effect until the reference is resolved again. The fault points the app setting at another secret with a wrong value
+# (changing a setting makes the app resolve it); restoring sets back the reference Terraform writes
+# (logicapp-connections.tf).
+$script:FtpPasswordSetting = 'FTP_PARTNER_A_PASSWORD'
+$script:FaultSecretName = 'ftp-partner-a-password-fault'
+
+function Set-FtpPasswordSetting {
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory)][SecureString]$Secret)
-    $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $temporaryDirectory
-    $secretPointer = [IntPtr]::Zero
-    try {
-        if ($IsWindows) {
-            $acl = Get-Acl -Path $temporaryDirectory
-            $acl.SetAccessRuleProtection($true, $false)
-            foreach ($accessRule in @($acl.Access)) {
-                $acl.RemoveAccessRuleAll($accessRule)
-            }
-            $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
-            $privateRule = [Security.AccessControl.FileSystemAccessRule]::new(
-                $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'
-            )
-            $acl.AddAccessRule($privateRule)
-            Set-Acl -Path $temporaryDirectory -AclObject $acl
-        }
-        else {
-            [IO.File]::SetUnixFileMode(
-                $temporaryDirectory,
-                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute
-            )
-        }
-        $secretFile = Join-Path $temporaryDirectory 'value'
-        $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
-        $secretText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
-        [IO.File]::WriteAllText($secretFile, $secretText, [Text.UTF8Encoding]::new($false))
-        $secretText = $null
-        if (-not $IsWindows) {
-            [IO.File]::SetUnixFileMode(
-                $secretFile,
-                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite
-            )
-        }
-        # VERIFY: confirm az keyvault secret set --file reads the secret value from a protected temporary file.
-        $keyVault = Get-Setting KEY_VAULT_NAME
-        $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
-        if ($PSCmdlet.ShouldProcess('Key Vault', 'Restore the partner FTP password')) {
-            $null = Invoke-AzCli -Arguments @(
-                'keyvault', 'secret', 'set', '--vault-name', $keyVault, '--subscription', $subscription,
-                '--name', 'ftp-partner-a-password', '--file', $secretFile, '--output', 'none'
-            )
-        }
+    param([Parameter(Mandatory)][string]$SecretName)
+    $reference = "@Microsoft.KeyVault(VaultName=$(Get-Setting KEY_VAULT_NAME);SecretName=$SecretName)"
+    if (-not $PSCmdlet.ShouldProcess((Get-Setting LOGIC_APP_NAME), "Point $script:FtpPasswordSetting at $SecretName")) {
+        return
     }
-    finally {
-        $secretText = $null
-        if ($secretPointer -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)
-        }
-        Remove-Item -Recurse -Force $temporaryDirectory -ErrorAction SilentlyContinue
-    }
+    $null = Invoke-AzCli -Arguments @(
+        'logicapp', 'config', 'appsettings', 'set', '--name', (Get-Setting LOGIC_APP_NAME),
+        '--resource-group', (Get-Setting AZURE_RESOURCE_GROUP), '--subscription', (Get-Setting AZURE_SUBSCRIPTION_ID),
+        '--settings', "$script:FtpPasswordSetting=$reference", '--output', 'none'
+    )
 }
 
 function Restore-BadPassword {
-    $keyVault = Get-Setting KEY_VAULT_NAME
-    $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
-    $version = Invoke-AzCli -Arguments @(
-        'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags."fault-restore-version"', '--output', 'tsv'
+    $current = Invoke-AzCli -Arguments @(
+        'logicapp', 'config', 'appsettings', 'list', '--name', (Get-Setting LOGIC_APP_NAME),
+        '--resource-group', (Get-Setting AZURE_RESOURCE_GROUP), '--subscription', (Get-Setting AZURE_SUBSCRIPTION_ID),
+        '--query', "[?name=='$script:FtpPasswordSetting'].value | [0]", '--output', 'tsv'
     )
-    if (-not $version -or $version -eq 'None') {
+    if ("$current" -notlike "*$script:FaultSecretName*") {
         return
     }
-    $password = Invoke-AzCli -Arguments @(
-        'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--version', $version, '--query', 'value', '--output', 'tsv'
-    )
-    $securePassword = [Security.SecureString]::new()
-    foreach ($character in "$password".ToCharArray()) {
-        $securePassword.AppendChar($character)
-    }
-    $securePassword.MakeReadOnly()
-    $secretArguments = @{ Secret = $securePassword }
-    try {
-        Set-FtpPasswordSecret @secretArguments
-    }
-    finally {
-        $securePassword.Dispose()
-    }
-    $resourceGroup = Get-Setting AZURE_RESOURCE_GROUP
-    $logicApp = Get-Setting LOGIC_APP_NAME
-    # VERIFY: confirm the Logic Apps Standard restart command is available in the deployed az CLI.
-    $null = Invoke-AzCli -Arguments @(
-        'logicapp', 'restart', '--name', $logicApp, '--resource-group', $resourceGroup,
-        '--subscription', $subscription, '--output', 'none'
-    )
+    Set-FtpPasswordSetting -SecretName 'ftp-partner-a-password'
 }
 
 function Invoke-BadPassword {
-    $keyVault = Get-Setting KEY_VAULT_NAME
-    $subscription = Get-Setting AZURE_SUBSCRIPTION_ID
-    $existingRestoreVersion = Invoke-AzCli -Arguments @(
-        'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'tags."fault-restore-version"', '--output', 'tsv'
-    )
-    if ($existingRestoreVersion -and $existingRestoreVersion -ne 'None') {
-        throw 'Bad FTP password fault is already active; restore it first'
-    }
-    $currentId = Invoke-AzCli -Arguments @(
-        'keyvault', 'secret', 'show', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--query', 'id', '--output', 'tsv'
-    )
-    $currentVersion = ($currentId -split '/')[-1]
-    # VERIFY: secret version tags are supported by the deployed Key Vault CLI/API.
     $null = Invoke-AzCli -Arguments @(
-        'keyvault', 'secret', 'set', '--vault-name', $keyVault, '--subscription', $subscription,
-        '--name', 'ftp-partner-a-password', '--value', 'invalid-test-password',
-        '--tags', "fault-restore-version=$currentVersion", '--output', 'none'
+        'keyvault', 'secret', 'set', '--vault-name', (Get-Setting KEY_VAULT_NAME),
+        '--subscription', (Get-Setting AZURE_SUBSCRIPTION_ID), '--name', $script:FaultSecretName,
+        '--value', 'invalid-test-password', '--output', 'none'
     )
-    $resourceGroup = Get-Setting AZURE_RESOURCE_GROUP
-    $logicApp = Get-Setting LOGIC_APP_NAME
-    # VERIFY: confirm the Logic Apps Standard restart command is available in the deployed az CLI.
-    $null = Invoke-AzCli -Arguments @(
-        'logicapp', 'restart', '--name', $logicApp, '--resource-group', $resourceGroup,
-        '--subscription', $subscription, '--output', 'none'
-    )
+    Set-FtpPasswordSetting -SecretName $script:FaultSecretName
 }
 
 function Invoke-Fault {

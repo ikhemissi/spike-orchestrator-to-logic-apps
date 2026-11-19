@@ -51,8 +51,9 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
-assert state["secret_value"] == "invalid-test-password"
-assert state["secret_restore_version"] == "version-a"
+assert state["fault_secret_value"] == "invalid-test-password"
+assert state["secret_value"] == "test-secret-value"
+assert state["app_settings"]["FTP_PARTNER_A_PASSWORD"] == "@Microsoft.KeyVault(VaultName=test-vault;SecretName=ftp-partner-a-password-fault)"
 PY
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
 python3 - "$AZ_TEST_STATE" <<'PY'
@@ -62,7 +63,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as state_file:
     state = json.load(state_file)
 assert state["secret_value"] == "test-secret-value"
-assert state["secret_restore_version"] is None
+assert state["app_settings"]["FTP_PARTNER_A_PASSWORD"] == "@Microsoft.KeyVault(VaultName=test-vault;SecretName=ftp-partner-a-password)"
 PY
 
 bash "$root/scripts/inject-fault.sh" partner-down >/dev/null
@@ -83,6 +84,8 @@ assert rules[0]["source"] == "10.10.0.0/27"
 assert rules[0]["destination"] == "10.20.0.4/32"
 assert rules[0]["ports"] == "445"
 PY
+# The open SMB connection survives the new rule, so the NAS restarts its SMB server.
+grep -q 'Restart-Service -Name LanmanServer' "$AZ_TEST_LOG"
 bash "$root/scripts/inject-fault.sh" restore-all >/dev/null
 
 bash "$root/scripts/inject-fault.sh" worker-stop >/dev/null

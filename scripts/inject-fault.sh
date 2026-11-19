@@ -145,11 +145,21 @@ print(next((value for value in range(100, 4097) if value not in used), ""))
     --nsg-name "$SERVERS_NSG_NAME" --name fault-nas-block --priority "$priority" \
     --direction Inbound --access Deny --protocol Tcp --source-address-prefixes "$subnet_prefix" \
     --source-port-ranges '*' --destination-address-prefixes "$nas_ip/32" --destination-port-ranges 445 --output none
-  restart_logic_app_for_nas_mount
+  restart_nas_smb_server
+}
+
+# NSGs are stateful and the platform keeps the share mounted across app restarts, so the NAS restarts its
+# SMB server, which drops the open connections (closing only the SMB sessions keeps them): the client has to reconnect,
+# and the new rule blocks that.
+restart_nas_smb_server() {
+  az vm run-command invoke --resource-group "$AZURE_RESOURCE_GROUP" --subscription "$AZURE_SUBSCRIPTION_ID" \
+    --name "$NAS_VM_NAME" --command-id RunPowerShellScript \
+    --scripts 'Restart-Service -Name LanmanServer -Force' --output none
 }
 
 # The NAS is a file-share mount of the Logic App; an open SMB session survives a new NSG rule (NSGs are stateful), so
 # the app restarts to mount the share again through the changed rules.
+# The NAS is a file-share mount of the Logic App: after the block is lifted, the app restarts to mount it again.
 restart_logic_app_for_nas_mount() {
   az logicapp restart --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
     --subscription "$AZURE_SUBSCRIPTION_ID" --output none
@@ -219,55 +229,33 @@ restore_nas_block() {
   restart_logic_app_for_nas_mount
 }
 
-set_ftp_password_secret() {
-  local password_value=$1 temporary_directory status
-  temporary_directory=$(mktemp -d)
-  chmod 700 "$temporary_directory"
-  (umask 077; printf '%s' "$password_value" >"$temporary_directory/value")
-  # VERIFY: confirm az keyvault secret set --file reads the secret value from a protected temporary file.
-  if az keyvault secret set --vault-name "$KEY_VAULT_NAME" --subscription "$AZURE_SUBSCRIPTION_ID" \
-    --name ftp-partner-a-password --file "$temporary_directory/value" --output none; then
-    rm -rf "$temporary_directory"
-  else
-    status=$?
-    rm -rf "$temporary_directory"
-    return "$status"
-  fi
+# The Logic App reads the partner password through a Key Vault reference, which it caches: changing the secret has no
+# effect until the reference is resolved again. The fault points the app setting at another secret with a wrong value
+# (changing a setting makes the app resolve it); restoring sets back the reference Terraform writes (logicapp-connections.tf).
+ftp_password_setting=FTP_PARTNER_A_PASSWORD
+fault_secret_name=ftp-partner-a-password-fault
+
+key_vault_reference() {
+  printf '@Microsoft.KeyVault(VaultName=%s;SecretName=%s)' "$KEY_VAULT_NAME" "$1"
+}
+
+set_ftp_password_setting() {
+  az logicapp config appsettings set --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --subscription "$AZURE_SUBSCRIPTION_ID" --settings "$ftp_password_setting=$(key_vault_reference "$1")" --output none
 }
 
 restore_bad_password() {
-  local version password
-  version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query 'tags."fault-restore-version"' --output tsv)
-  [[ -n "$version" && "$version" != None ]] || return 0
-  IFS= read -r password < <(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --version "$version" --query value --output tsv)
-  set_ftp_password_secret "$password"
-  # VERIFY: confirm the Logic Apps Standard restart command is available in the deployed az CLI.
-  az logicapp restart --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --output none
+  local current
+  current=$(az logicapp config appsettings list --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --subscription "$AZURE_SUBSCRIPTION_ID" --query "[?name=='$ftp_password_setting'].value | [0]" --output tsv)
+  [[ "$current" == *"$fault_secret_name"* ]] || return 0
+  set_ftp_password_setting ftp-partner-a-password
 }
 
 inject_bad_password() {
-  local current_id current_version
-  local existing_restore_version
-  existing_restore_version=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password \
-    --query 'tags."fault-restore-version"' --output tsv)
-  [[ -z "$existing_restore_version" || "$existing_restore_version" == None ]] || {
-    echo "Bad FTP password fault is already active; restore it first" >&2
-    return 1
-  }
-  current_id=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --query id --output tsv)
-  current_version=${current_id##*/}
-  # VERIFY: secret version tags are supported by the deployed Key Vault CLI/API.
-  az keyvault secret set --vault-name "$KEY_VAULT_NAME" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --name ftp-partner-a-password --value invalid-test-password \
-    --tags "fault-restore-version=$current_version" --output none
-  # VERIFY: confirm the Logic Apps Standard restart command is available in the deployed az CLI.
-  az logicapp restart --name "$LOGIC_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --subscription "$AZURE_SUBSCRIPTION_ID" --output none
+  az keyvault secret set --vault-name "$KEY_VAULT_NAME" --subscription "$AZURE_SUBSCRIPTION_ID" \
+    --name "$fault_secret_name" --value invalid-test-password --output none
+  set_ftp_password_setting "$fault_secret_name"
 }
 
 restore_all() {

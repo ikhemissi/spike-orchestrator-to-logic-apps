@@ -479,7 +479,7 @@ Each scenario: **reset → seed → (inject fault) → trigger the workflow thro
 | T02 | J1 happy path | seed j1 | 2 CSV + large file delivered to partner B `/inbound` (sizes match), `~lock_*` ignored, sources moved to `/outbound/archive`, run Succeeded, report blob written |
 | T03 | J1 re-run / duplicate | re-seed the same files after T02 | run Succeeded, `filesSkipped = 3`, no new file versions on partner B |
 | T04 | J1 partner IP allow-list | `inject-fault.sh partner-ip-block` (remove `NAT_PUBLIC_IP` from the partner NSG) | SFTP/FTP actions fail after retries, run **Failed**, `alert-workflow-failed` fires; after restore, a re-run delivers the files |
-| T05 | J1 wrong partner password | set KV secret `ftp-partner-a-password` to a wrong value, restart app | run Failed with an auth error, clear error message in Catch; restore |
+| T05 | J1 wrong partner password | point `FTP_PARTNER_A_PASSWORD` at a secret with a wrong value (D15) | run Failed with an auth error, clear error message in Catch; restore |
 | T06 | J4 happy path | seed j4 | each file in the right NAS folder (check via run-command), `unknown_payload.dat` in quarantine, run Succeeded |
 | T07 | J4 NAS unreachable | NSG deny 445 from the integration subnet | File System actions fail, run Failed, alert; restore |
 | T08 | J3 happy path | seed j3 (without the FAIL file) | `.json` files in `j3\out` **identical** to `test-data/j3/expected/*.json`, sidecar hashes present, sources archived, runbook output `runAs = hw01\svc-azauto`, run Succeeded |

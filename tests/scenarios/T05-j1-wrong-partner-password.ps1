@@ -18,9 +18,11 @@ function Assert {
     if ($Run.Status -ne 'Failed') {
         throw "J1 wrong-password run ended with '$($Run.Status)' instead of Failed."
     }
-    $runJson = ConvertTo-Json -InputObject $Run -Depth 100 -Compress
-    if ($runJson -notmatch '(?i)auth|credential|password') {
-        throw 'J1 failure did not report an authentication error.'
+    # The FTP server answers "530 Login incorrect"; the error is in the outputs of the action that failed.
+    $output = Get-WorkflowActionOutput -Environment $script:ScenarioEnvironment -WorkflowName $Run.WorkflowName -RunId $Run.RunId -ActionName 'List_source_files'
+    $outputJson = ConvertTo-Json -InputObject $output -Depth 20 -Compress
+    if ($outputJson -notmatch '(?i)login incorrect|auth|credential|password') {
+        throw "J1 failure did not report an authentication error: $outputJson"
     }
     return $true
 }

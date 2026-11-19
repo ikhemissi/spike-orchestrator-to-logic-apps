@@ -5,7 +5,7 @@ BeforeAll {
 }
 
 Describe 'Wait-WorkflowRun' {
-    It 'allows J4 runs up to 20 minutes by default' {
+    It 'allows J4 runs up to 30 minutes by default' {
         $environment = @{
             AZURE_SUBSCRIPTION_ID = 'subscription'
             AZURE_RESOURCE_GROUP = 'resource-group'
@@ -23,8 +23,8 @@ Describe 'Wait-WorkflowRun' {
             Wait-WorkflowRun -Environment $environment -Run $run -PollInterval ([timespan]::FromDays(1))
         } | Should -Throw '*stop after observing*'
 
-        ($script:waitSleepMilliseconds -gt 1190000) | Should -BeTrue
-        ($script:waitSleepMilliseconds -le 1200000) | Should -BeTrue
+        ($script:waitSleepMilliseconds -gt 1790000) | Should -BeTrue
+        ($script:waitSleepMilliseconds -le 1800000) | Should -BeTrue
     }
 
     It 'polls until the workflow run reaches a terminal status and returns action evidence' {

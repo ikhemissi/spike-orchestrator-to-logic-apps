@@ -94,7 +94,15 @@ fi
 workflow_api_url="https://management.azure.com/subscriptions/$subscription_id/resourceGroups/$AZURE_RESOURCE_GROUP/providers/Microsoft.Web/sites/$LOGIC_APP_NAME/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
 # The runtime answers 503 for a while after the restart.
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
-  if az rest --method get --url "$workflow_api_url"; then
+  # A workflow with an invalid definition still deploys; the runtime marks it Unhealthy and disables its trigger.
+  if unhealthy=$(az rest --method get --url "$workflow_api_url" \
+    --query "[?health.state!='Healthy'].{workflow: name, error: health.errorMessage.error.message}" --output tsv); then
+    if [[ -n "$unhealthy" ]]; then
+      echo "Unhealthy workflows after the deployment:" >&2
+      echo "$unhealthy" >&2
+      exit 1
+    fi
+    echo "All workflows are healthy."
     exit 0
   fi
   echo "The workflow runtime is not ready yet (attempt $attempt/10); retrying in 30 s." >&2

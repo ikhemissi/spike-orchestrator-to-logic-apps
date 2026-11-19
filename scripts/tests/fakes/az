@@ -82,6 +82,14 @@ elif args[:4] == ["network", "nsg", "rule", "delete"]:
     save_state()
 elif args[:4] == ["network", "vnet", "subnet", "show"]:
     emit("10.10.0.0/27")
+elif args[:4] == ["logicapp", "config", "appsettings", "set"]:
+    name, value = option("--settings").split("=", 1)
+    state.setdefault("app_settings", {})[name] = value
+    save_state()
+elif args[:4] == ["logicapp", "config", "appsettings", "list"]:
+    # Only the single-setting query of inject-fault.sh is supported.
+    name = option("--query").split("'")[1]
+    emit(state.get("app_settings", {}).get(name, "None"))
 elif args[:2] == ["logicapp", "show"]:
     emit("/subscriptions/test/resourceGroups/test/providers/Microsoft.Network/virtualNetworks/vnet/subnets/logicapp")
 elif args[:3] == ["keyvault", "secret", "show"]:
@@ -104,6 +112,10 @@ elif args[:3] == ["keyvault", "secret", "set"]:
     if value_file:
         with open(value_file, encoding="utf-8") as secret_file:
             state["secret_value"] = secret_file.read()
+    elif option("--name") == "ftp-partner-a-password-fault":
+        state["fault_secret_value"] = option("--value", "")
+        save_state()
+        sys.exit(0)
     else:
         state["secret_value"] = option("--value", "")
     state["secret_restore_version"] = None

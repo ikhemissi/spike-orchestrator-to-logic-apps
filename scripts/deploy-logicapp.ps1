@@ -132,9 +132,14 @@ try {
     $workflowApiUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$($env:AZURE_RESOURCE_GROUP)/providers/Microsoft.Web/sites/$($env:LOGIC_APP_NAME)/hostruntime/runtime/webhooks/workflow/api/management/workflows?api-version=2018-11-01"
     # The runtime answers 503 for a while after the restart.
     $retrySeconds = if ($env:DEPLOY_RETRY_SECONDS) { [int]$env:DEPLOY_RETRY_SECONDS } else { 30 }
+    $unhealthy = $null
     foreach ($attempt in 1..10) {
         try {
-            Invoke-Az -Arguments @('rest', '--method', 'get', '--url', $workflowApiUrl)
+            # A workflow with an invalid definition still deploys; the runtime marks it Unhealthy and disables its trigger.
+            $unhealthy = Invoke-Az -Arguments @(
+                'rest', '--method', 'get', '--url', $workflowApiUrl, '--output', 'tsv',
+                '--query', "[?health.state!='Healthy'].{workflow: name, error: health.errorMessage.error.message}"
+            )
             break
         }
         catch {
@@ -143,6 +148,10 @@ try {
             Start-Sleep -Seconds $retrySeconds
         }
     }
+    if ($unhealthy) {
+        throw "Unhealthy workflows after the deployment:`n$($unhealthy -join "`n")"
+    }
+    Write-Output 'All workflows are healthy.'
 }
 finally {
     if ($null -ne $archive) {

@@ -247,8 +247,9 @@ function Wait-WorkflowRun {
         [timespan]$PollInterval = ([timespan]::FromSeconds(5))
     )
 
+    # A blocked NAS (T07) answers only after its SMB timeout, which took up to 20 minutes.
     if (-not $PSBoundParameters.ContainsKey('Timeout') -and $Run.WorkflowName -eq 'wf-j4-ftp-sort-to-nas') {
-        $Timeout = [timespan]::FromMinutes(20)
+        $Timeout = [timespan]::FromMinutes(30)
     }
 
     if ($Timeout -le [timespan]::Zero) {
