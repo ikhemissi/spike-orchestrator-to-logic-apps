@@ -2,21 +2,31 @@
 
 **Question:** Can scheduled and folder-monitoring System Center Orchestrator jobs, including jobs that use on-premises file shares and local tools, run on Azure Logic Apps Standard with Azure Automation hybrid workers, reliably, idempotently and observably?
 
-**Time box:** Ready by 2026-11-23 · **Status:** live tests done except T16 and the rebuild from scratch (2026-11-19) · **Hand-off:** [docs/HANDOFF.md](docs/HANDOFF.md)
-
-![The spike evaluates three separate patterns. 1, partner file transfer: a Logic Apps workflow uses the FTP and SFTP connectors through a NAT Gateway, so partners allow-list one egress IP, and can deliver to SharePoint (a Blob container stands in). 2, on-premises file share: a workflow reads and writes a datacenter NAS over SMB with the File System connector, with no agent on-premises. 3, local tool on a hybrid worker: a workflow starts an Azure Automation runbook that runs a local tool on one of two Windows hybrid workers, as a dedicated account, and polls the job. Shared by all three: Key Vault, a correlation ID and a run report for every run, and Log Analytics with five alert rules and a trace workbook. On 19 November 2026 all three pass their happy paths and failure scenarios; the did-not-run alert test and the rebuild from scratch are pending.](docs/overview.svg)
+**Time box:** Ready by 2026-11-23 · **Status:** live tests done except T16 and the rebuild from scratch (2026-11-19)
 
 ## The three patterns
 
-The spike evaluates three integration patterns separately. Five Orchestrator jobs from the specification exercise them:
+The spike evaluates three integration patterns separately, each with its own question. Five Orchestrator jobs from the specification (J1–J5) exercise them; [the setup](#the-setup) shows each job step by step.
 
-| Pattern | Question | Jobs (workflows) | Scenarios |
-|---|---|---|---|
-| **1. Partner file transfer** | Do the built-in FTP and SFTP connectors work from one stable IP that partners can allow-list? | **J1** partner A FTP → partner B SFTP (`wf-j1-partner-ftp-to-sftp`); **J2** partner A FTP → SharePoint, Blob stand-in (`wf-j2-ftp-to-sharepoint`) | T01–T05, T14 |
-| **2. On-premises file share** | Can Logic Apps read and write a datacenter file share directly, with no agent on-premises? | **J4** partner A FTP → NAS folders by file type (`wf-j4-ftp-sort-to-nas`); **J5** NAS folder watch (`wf-j5-nas-folderwatch`) | T06, T07, T18 |
-| **3. Local tool on a hybrid worker** | Can Logic Apps run a local tool on a datacenter server, as a dedicated account, and see failures? | **J3** CSV → JSON with a local tool on a hybrid worker (`wf-j3-convert-onprem`, runbook `Invoke-ConvertAndMove`) | T08–T13, T16, T17 |
+### 1. Partner file transfer
 
-Two helper workflows support them: `wf-diag-egress-ip` reports the egress IP (T01), and `wf-child-run-report` writes the run report of every job run (T15). J4 also reads from the partner FTP server, so it touches pattern 1 too.
+![Pattern 1, partner file transfer: a Logic Apps workflow in Azure uses the FTP and SFTP connectors to reach the simulated partner servers through a NAT Gateway, so partners allow-list one egress IP, and can deliver to SharePoint, simulated by a Blob container. The datacenter is not involved.](docs/pattern-1-partner-transfer.svg)
+
+Can the built-in FTP and SFTP connectors move files between partners from one stable IP that partners can allow-list? The workflows leave Azure through the NAT Gateway of the Logic App's subnet, so a partner allow-lists a single address. **J1** (`wf-j1-partner-ftp-to-sftp`) moves files from partner A's FTP server to partner B's SFTP server, uploading under a temporary `.partial` name before renaming; **J2** (`wf-j2-ftp-to-sharepoint`) delivers partner A's files to SharePoint, simulated by a Blob container. **Tested live (T01–T05, T14):** the egress IP is the NAT IP, files arrive complete, re-runs skip files already delivered, and a blocked IP or a wrong password fails the run with a clear error and an alert.
+
+### 2. On-premises file share
+
+![Pattern 2, on-premises file share: a Logic Apps workflow in Azure uses the File System connector to read and write a Windows NAS in the simulated datacenter over SMB port 445, through VNet integration and peering, with no agent on-premises. The partners are not involved.](docs/pattern-2-file-share.svg)
+
+Can Logic Apps read and write a datacenter file share directly, with no agent on-premises? The File System connector reaches the NAS over SMB through a file-share mount of the Logic App, VNet integration and peering. **J4** (`wf-j4-ftp-sort-to-nas`) takes partner A's files (pattern 1) and writes each one to the NAS folder for its type, unknown types to a quarantine folder; **J5** (`wf-j5-nas-folderwatch`) watches a NAS folder by polling it every minute and moves new files on. **Tested live (T06, T07; T18 by hand):** files land in the right folders, the folder watch picks up new files, and an unreachable NAS fails the run before any file moves.
+
+### 3. Local tool on a hybrid worker
+
+![Pattern 3, local tool on a hybrid worker: a Logic Apps workflow in Azure starts an Azure Automation runbook and polls the job; two Windows hybrid runbook workers in the simulated datacenter pick up the job over outbound HTTPS and run a local conversion tool against the NAS as a dedicated account. The partners are not involved.](docs/pattern-3-hybrid-worker.svg)
+
+Can Logic Apps run a local tool on a datacenter server, as a dedicated account, and see when it fails? **J3** (`wf-j3-convert-onprem`) starts the Azure Automation runbook `Invoke-ConvertAndMove` on a hybrid worker group and polls the job until it ends; the workers only call Automation outbound, and the job converts CSV files to JSON with a local tool on the NAS. **Tested live (T08–T13, T17):** the output matches the expected files, re-runs skip converted files, a bad file, a job running as Local System and an offline worker each fail the run with a clear code, a second worker takes over when the first is stopped, and the workbook traces the run's correlation ID into the Automation job.
+
+Two helper workflows support all three patterns: `wf-diag-egress-ip` reports the egress IP (T01), and `wf-child-run-report` writes a run report with the correlation ID at the end of every job run (T15). Failed runs raise alerts in Azure Monitor; the did-not-run alert test (T16) is still pending.
 
 ## The setup
 
@@ -130,7 +140,6 @@ The answers to every question, with the evidence: **[docs/FINDINGS.md](docs/FIND
 | [Questions](docs/QUESTIONS.md) | What the spike must answer, and the status of each question |
 | [Experiments](docs/experiments/README.md) | One file per experiment, numbered |
 | [Findings](docs/FINDINGS.md) | The answers, with links to the evidence |
-| [Hand-off](docs/HANDOFF.md) | State, how to run it, what is tested and what is not, next steps |
 | [Architecture](docs/ARCHITECTURE.md) | Components, identities and network paths |
 | [Test report](docs/TEST-REPORT.md) | The last scenario run |
 | [CI/CD](docs/CICD.md) | How the checks and deployment would run in a pipeline |

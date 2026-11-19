@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" width="1000" height="248" viewBox="0 0 1000 248" role="img" aria-labelledby="title desc">
+  <title id="title">Pattern 1: Partner file transfer</title>
+  <desc id="desc">Pattern 1, partner file transfer. A Logic Apps workflow in Azure reaches the simulated partner servers, which sit in their own VNet with a public IP and no peering, through the NAT Gateway, so partners allow-list one egress IP. It signs in to the partners with a Key Vault secret or an SSH certificate, and writes to the SharePoint stand-in, a Blob container, with its managed identity. The datacenter is not involved.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4466"/></marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#138a7a"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1b1f3b" flood-opacity="0.12"/></filter>
+  </defs>
+  <style>
+    text { fill: #1b1f3b; }
+    .badge { font-size: 17px; font-weight: 700; fill: #ffffff; }
+    .pattern { font-size: 20px; font-weight: 700; }
+    .question { font-size: 14px; fill: #4a5072; font-style: italic; }
+    .column { font-size: 14px; font-weight: 700; }
+    .sub { font-size: 12px; fill: #4a5072; }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .kind { font-size: 12.5px; fill: #4a5072; }
+    .edge { font-size: 12px; fill: #3d4466; font-weight: 600; }
+    .teal { font-size: 12px; fill: #138a7a; font-weight: 600; }
+    .unused { font-size: 13px; fill: #9aa0b8; font-style: italic; }
+  </style>
+  <rect width="1000" height="248" rx="14" fill="#ffffff" stroke="#8a90ad" stroke-width="1.2"/>
+  <circle cx="36" cy="36" r="16" fill="#1b1f3b"/>
+  <text class="badge" x="36" y="42" text-anchor="middle">1</text>
+  <text class="pattern" x="62" y="43">Partner file transfer</text>
+  <text class="question" x="20" y="72">Do the built-in FTP and SFTP connectors work from one stable IP that partners can allow-list?</text>
+  <rect x="16" y="88" width="228" height="144" rx="12" fill="#edf7ee" stroke="#2e7d32" stroke-width="1.8"/>
+  <rect x="256" y="88" width="488" height="144" rx="12" fill="#eaf2fb" stroke="#0b5cad" stroke-width="1.8"/>
+  <rect x="756" y="88" width="228" height="144" rx="12" fill="#fdf0e3" stroke="#c25e00" stroke-width="1.8"/>
+  <text class="column" x="130.0" y="112" text-anchor="middle" style="fill:#2e7d32">Partners (simulated)</text>
+  <text class="column" x="500.0" y="112" text-anchor="middle" style="fill:#0b5cad">Azure</text>
+  <text class="column" x="870.0" y="112" text-anchor="middle" style="fill:#c25e00">Datacenter (Arc-enabled)</text>
+  <text class="sub" x="130.0" y="130" text-anchor="middle">own VNet, not peered; public IP</text>
+  <text class="sub" x="500.0" y="130" text-anchor="middle">VNet integration, NAT Gateway</text>
+  <text class="sub" x="870.0" y="130" text-anchor="middle">simulated; peered, private IPs</text>
+  <rect x="30" y="150" width="174" height="64" rx="10" fill="#ffffff" stroke="#2e7d32" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="117.0" y="176" text-anchor="middle">Partner servers</text>
+  <text class="kind" x="117.0" y="196" text-anchor="middle">FTP in, SFTP out</text>
+  <rect x="266" y="150" width="68" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="300.0" y="176" text-anchor="middle">NAT</text>
+  <text class="kind" x="300.0" y="196" text-anchor="middle">egress IP</text>
+  <rect x="452" y="150" width="126" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="2" filter="url(#shadow)"/>
+  <text class="name" x="515.0" y="176" text-anchor="middle">Logic Apps</text>
+  <text class="kind" x="515.0" y="196" text-anchor="middle">connectors</text>
+  <rect x="652" y="150" width="88" height="64" rx="10" fill="#ffffff" stroke="#0b5cad" stroke-width="1.5" filter="url(#shadow)"/>
+  <text class="name" x="696.0" y="176" text-anchor="middle">SharePoint</text>
+  <text class="kind" x="696.0" y="196" text-anchor="middle">Blob stand-in</text>
+  <line x1="452" y1="182" x2="338" y2="182" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge" x="394" y="158" text-anchor="middle">KV secret or</text>
+  <text class="edge" x="394" y="172" text-anchor="middle">SSH certificate</text>
+  <line x1="266" y1="182" x2="208" y2="182" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="578" y1="182" x2="648" y2="182" stroke="#3d4466" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="edge" x="614" y="158" text-anchor="middle">managed</text>
+  <text class="edge" x="614" y="172" text-anchor="middle">identity</text>
+  <text class="unused" x="870.0" y="187" text-anchor="middle">not involved</text>
+</svg>
