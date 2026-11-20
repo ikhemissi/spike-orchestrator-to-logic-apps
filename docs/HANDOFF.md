@@ -1,6 +1,6 @@
 # Hand-off — Orchestrator to Logic Apps Standard spike
 
-State on **2026-11-19**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
+State on **2026-11-20**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
 
 ## In one paragraph
 
@@ -64,7 +64,7 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 
 | Gap | Note |
 |---|---|
-| Rebuild from an empty subscription | The main remaining item (Q6). The environment was built up step by step. |
+| A second clean rebuild | The rebuild of 2026-11-20 passed after three fixes (D17–D19); a rebuild with the fixes in place from the start is still to run. |
 | T16 did-not-run alert | Needs J3 disabled for the alert window (1 hour) after the deadline alert has resolved. |
 | Partner server down, and `alert-partner-connection-errors` | The fault exists (`inject-fault partner-down`); no scenario uses it. The alert's query was corrected on 2026-11-19 and checked against two days of logs, but has not fired in a test. |
 | Alert e-mail delivery | Alerts fire in Azure; arrival in the mailbox set by `ALERT_EMAIL` was not checked. |
@@ -88,6 +88,6 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 ## Next steps
 
 1. Run T16 (`pwsh -File tests/run-all.ps1 -Only T16 -IncludeAlerts`, about 1 hour 15 minutes).
-2. Rebuild from scratch: `azd down --purge`, `azd provision`, `deploy-logicapp`, the full `run-all.ps1 -IncludeAlerts`; commit `docs/TEST-REPORT.md`, then mark Q1, Q5 and Q6 in [QUESTIONS.md](QUESTIONS.md) and [FINDINGS.md](FINDINGS.md).
+2. Run a second clean rebuild with the fixes in place (`azd down --purge`, `azd provision`, `deploy-logicapp`, `run-all.ps1`) to confirm it needs no manual step.
 3. Optional: a partner-down scenario with the partner-connection alert, J5 as an automated scenario, J4's conflict path.
 4. Rehearse the [demo](DEMO-RUNBOOK.md).

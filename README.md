@@ -2,7 +2,7 @@
 
 **Question:** Can scheduled and folder-monitoring System Center Orchestrator jobs, including jobs that use on-premises file shares and local tools, run on Azure Logic Apps Standard with Azure Automation hybrid workers, reliably, idempotently and observably?
 
-**Time box:** Ready by 2026-11-23 · **Status:** live tests done except T16 and the rebuild from scratch (2026-11-19)
+**Time box:** Ready by 2026-11-23 · **Status:** rebuilt from scratch and all mandatory scenarios passing (2026-11-20); T16 and the Arc-enabled worker pending
 
 ## The three patterns
 
@@ -127,7 +127,7 @@ Every workflow uses the Logic App's managed identity (`id-logicapp`) to read the
 | Q3 | J4 and J5 read and write the NAS over VNet integration through a file-share mount, with no on-premises agent. An unreachable NAS fails J4 before any file moves. J5 polls, because the File System trigger did not load with the mount-based connection. | Answered |
 | Q4 | J3 starts a runbook on a hybrid worker that converts files with a local tool as a dedicated account; bad files, Local System, an offline worker and failover to a second worker are all detected or handled. | Answered |
 | Q5 | Re-runs skip handled files. Failed workflows, failed runbooks, stuck jobs and missed deadlines raised alerts; the workbook traces a correlation ID through Logic Apps and the Automation job. The did-not-run test (T16) is pending. | Partly answered |
-| Q6 | Terraform through azd provisions everything and `deploy-logicapp` deploys the workflows; the rebuild from an empty subscription is pending. | Partly answered |
+| Q6 | On 2026-11-20 the stack was torn down with `azd down --purge` and rebuilt with `azd provision` and `deploy-logicapp`; all mandatory scenarios passed after three ordering fixes ([test report](docs/TEST-REPORT.md)). | Answered |
 
 The answers to every question, with the evidence: **[docs/FINDINGS.md](docs/FINDINGS.md)**.
 

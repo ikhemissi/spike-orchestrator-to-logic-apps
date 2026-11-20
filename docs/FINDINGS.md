@@ -30,9 +30,9 @@ On 2026-11-20, an Azure VM prepared as a non-Azure server connected to Azure Arc
 
 T03 and T09 confirmed that reruns skip previously handled files, and T15 confirmed that run reports can be found by correlation ID. T10 confirmed an explicit runbook failure outcome while processing continued for other files ([02](experiments/02-p3-runbook-on-hybrid-worker.md), [D14](DECISIONS.md)). On 2026-11-18 and 2026-11-19, `alert-workflow-failed`, `alert-runbook-failed`, `alert-hybrid-job-stuck` and `alert-critical-job-did-not-succeed-by-deadline` fired after real failures and resolved on their own, 15 to 20 minutes after the failure. T17 confirmed that the workbook query by correlation ID returns the Logic Apps steps and the Automation job's logs; the two are joined through the Automation job ID that J3 records, because the job logs carry Automation's own correlation ID. T16 (did-not-run alert) remains pending.
 
-### Q6 — Can the whole environment be deployed from an empty subscription with Terraform and azd, and torn down with one command? (Partly answered)
+### Q6 — Can the whole environment be deployed from an empty subscription with Terraform and azd, and torn down with one command? (Answered)
 
-Experiment 01 established the scripted Terraform-through-azd and zip-deployment path, and settled the specification's VERIFY items, including the VM size and connector operations ([01](experiments/01-verify-items.md), [D1](DECISIONS.md)). A full rebuild from an empty subscription and teardown have not yet been completed and remain pending.
+On 2026-11-20 the environment was removed with `azd down --purge` and rebuilt from an empty resource group with `azd provision` and `scripts/deploy-logicapp.sh`; all mandatory scenarios then passed ([test report](TEST-REPORT.md)). The rebuild found three ordering problems that the step-by-step build had hidden, now fixed in Terraform: the Logic App's content file share must be created for it when it is reached over the virtual network, alert rules must wait for a new workspace, and the Hybrid Worker extension must be installed after the worker's setup script; the state store also needs the subscription's tags ([D17–D19](DECISIONS.md)). A second clean rebuild with the fixes in place has not been run yet.
 
 ## What we would do differently
 
