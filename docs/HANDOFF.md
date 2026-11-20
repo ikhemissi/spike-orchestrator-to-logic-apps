@@ -71,6 +71,7 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 | SharePoint itself | J2 writes to a Blob container that stands in for SharePoint. |
 | J5 as an automated scenario; failure cases of J2 and J5; J4's conflict path (same name, different size) | Happy paths only, J5 by hand. |
 | Scheduled runs | The tests start workflows by hand; the 15-minute schedule ran outside the tests but is not asserted. |
+| A hybrid worker on an Arc-enabled server | Arc onboarding worked on an Azure VM prepared for evaluation; the Hybrid Worker extension needs non-Azure hardware ([experiment 03](experiments/03-arc-enabled-worker.md)). The diagrams show the target design, with Arc-enabled datacenter servers. |
 | Volume and overlap | A handful of small files and one large file; no concurrent runs of the same job. |
 
 ## Things to know
