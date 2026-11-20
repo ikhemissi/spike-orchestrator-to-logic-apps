@@ -67,8 +67,19 @@ run "alert_resources_without_email" {
   }
 
   assert {
-    condition     = length(jsondecode(file("${path.root}/workbook.json")).items) == 7
-    error_message = "The workbook must contain a correlation ID parameter and six monitoring views."
+    condition = alltrue([
+      for item in jsondecode(file("${path.root}/workbook.json")).items :
+      contains(keys(item.content), "crossComponentResources") if contains(["KqlItem/1.0", "KqlParameterItem/1.0"], try(item.content.version, ""))
+    ])
+    error_message = "Every workbook query must name the Log Analytics workspace in crossComponentResources."
+  }
+
+  assert {
+    condition = length([
+      for item in jsondecode(file("${path.root}/workbook.json")).items : item
+      if try(item.content.version, "") == "KqlItem/1.0"
+    ]) >= 8
+    error_message = "The workbook must keep its business, technical and trace views."
   }
 }
 

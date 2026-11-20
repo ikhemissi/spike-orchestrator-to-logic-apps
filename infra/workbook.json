@@ -2,105 +2,341 @@
   "version": "Notebook/1.0",
   "items": [
     {
+      "type": 1,
+      "name": "Introduction",
+      "content": {
+        "json": "# Orchestrator jobs on Logic Apps\nBusiness view first, technical detail below. **Patterns:** 1 Partner transfer (J1, J2), 2 File share (J4, J5), 3 Hybrid worker (J3). Click a run in a table to see its steps from Application Insights at the bottom."
+      }
+    },
+    {
       "type": 9,
+      "name": "Parameters",
       "content": {
         "version": "KqlParameterItem/1.0",
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
         "parameters": [
+          {
+            "id": "TimeRange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 86400000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 14400000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 172800000
+                },
+                {
+                  "durationMs": 604800000
+                }
+              ],
+              "allowCustom": true
+            }
+          },
           {
             "id": "CorrelationId",
             "version": "KqlParameterItem/1.0",
             "name": "CorrelationId",
+            "label": "Correlation ID",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          },
+          {
+            "id": "RunId",
+            "version": "KqlParameterItem/1.0",
+            "name": "RunId",
+            "label": "Run ID",
             "type": 1,
             "isRequired": false,
             "value": ""
           }
         ],
-        "style": "pills",
-        "queryType": 0,
-        "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"]
-      },
-      "name": "Correlation ID"
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
+    },
+    {
+      "type": 1,
+      "name": "Business",
+      "content": {
+        "json": "## Business view"
+      }
     },
     {
       "type": 3,
+      "name": "KPIs",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, Status, and TimeGenerated columns.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(7d)\n| where WorkflowName startswith \"wf-j\"\n| summarize Succeeded = countif(Status == \"Succeeded\"), Failed = countif(Status == \"Failed\") by WorkflowName\n| order by WorkflowName asc",
-        "size": 0,
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet RunCounts = Runs | summarize Runs = count(), Succeeded = countif(Status == \"Succeeded\"), FailedRuns = countif(Status == \"Failed\");\nlet FileCounts = Summaries | summarize Delivered = sum(Processed), Skipped = sum(Skipped);\nRunCounts | extend Dummy = 1 | join kind=inner (FileCounts | extend Dummy = 1) on Dummy\n| project Metric = pack_array(\"Runs\", \"Success rate\", \"Failed runs\", \"Files delivered\", \"Duplicates skipped\"),\n          Value = pack_array(tostring(Runs), strcat(tostring(round(100.0 * Succeeded / Runs, 1)), \" %\"), tostring(FailedRuns), tostring(Delivered), tostring(Skipped))\n| mv-expand Metric to typeof(string), Value to typeof(string)",
+        "size": 4,
+        "title": "Overview",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
-      },
-      "name": "Runs per workflow"
+        "visualization": "tiles",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
     },
     {
       "type": 3,
+      "name": "Per job",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and WorkflowName, DurationMs, and TimeGenerated columns.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(7d)\n| where WorkflowName startswith \"wf-j\"\n| summarize DurationP50 = percentile(DurationMs, 50), DurationP95 = percentile(DurationMs, 95) by WorkflowName\n| order by WorkflowName asc",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet RunStats = Runs | summarize Runs = count(), Succeeded = countif(Status == \"Succeeded\"), Failed = countif(Status == \"Failed\"), LastRun = max(EndTime) by Job, Pattern;\nlet LastSuccess = Runs | where Status == \"Succeeded\" | summarize LastSuccess = max(EndTime) by Job;\nlet Files = Summaries | summarize FilesDelivered = sum(Processed), DuplicatesSkipped = sum(Skipped), FilesFailed = sum(Failed) by Job;\nRunStats\n| join kind=leftouter LastSuccess on Job\n| join kind=leftouter Files on Job\n| project Pattern, Job, Runs, [\"Success %\"] = round(100.0 * Succeeded / Runs, 1), Failed, FilesDelivered = coalesce(FilesDelivered, 0), DuplicatesSkipped = coalesce(DuplicatesSkipped, 0), FilesFailed = coalesce(FilesFailed, 0), LastSuccess, LastRun\n| order by Pattern asc, Job asc",
         "size": 0,
+        "title": "Per job: runs, success rate, files and last success",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
-      },
-      "name": "Workflow duration p50 and p95"
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Success %",
+              "formatter": 8,
+              "formatOptions": {
+                "min": 0,
+                "max": 100,
+                "palette": "redGreen"
+              }
+            }
+          ]
+        },
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
     },
     {
       "type": 3,
+      "name": "Files over time",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and parse_json(TrackedProperties).filesProcessed, WorkflowName, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| summarize FilesProcessed = sum(toint(parse_json(TrackedProperties).filesProcessed)) by WorkflowName, Day = bin(TimeGenerated, 1d)\n| order by Day desc",
-        "size": 0,
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nSummaries\n| summarize Files = sum(Processed) by Job, bin(TimeGenerated, 1h)\n",
+        "size": 1,
+        "title": "Files delivered per hour",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
-      },
-      "name": "Files processed per job and day"
+        "visualization": "barchart",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
     },
     {
       "type": 3,
+      "name": "Failures",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: LogicAppWorkflowRuntime table and parse_json(TrackedProperties).errorCode, Status, and TimeGenerated fields.\nLogicAppWorkflowRuntime\n| where TimeGenerated >= ago(30d)\n| where WorkflowName startswith \"wf-j\"\n| where Status == \"Failed\"\n| summarize Failures = count() by ErrorCode = tostring(parse_json(TrackedProperties).errorCode)\n| order by Failures desc",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet Codes = Summaries | where isnotempty(ErrorCode) | project RunId, ErrorCode;\n// The first failed step of each run, leaving out containers (scopes, loops) and the lookups that fail by design (NotFound).\nlet FirstFailedStep = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Failed\"\n    | where Code !in (\"ActionFailed\", \"NotFound\")\n    | summarize arg_min(TimeGenerated, ActionName, Code) by RunId\n    | project RunId, FailedStep = ActionName, StepCode = Code;\nRuns\n| where Status == \"Failed\"\n| join kind=leftouter Codes on RunId\n| join kind=leftouter FirstFailedStep on RunId\n| extend Reason = case(\n    ErrorCode == \"HYBRID_JOB_TIMEOUT\", \"No hybrid worker picked up the job in time (worker offline?)\",\n    ErrorCode == \"RUNBOOK_REPORTED_FAILURE\", \"The tool on the server reported a problem with a file or the share\",\n    WorkflowName in (\"wf-j4-ftp-sort-to-nas\", \"wf-j5-nas-folderwatch\") and (FailedStep startswith \"Check_NAS\" or FailedStep in (\"Get_target_metadata\", \"Create_new_file\", \"Create_conflict_file\", \"List_watch_folder\", \"Copy_to_processed\")), \"NAS file share unreachable\",\n    StepCode == \"BadRequest\" and FailedStep == \"List_source_files\", \"Partner refused the login (wrong credentials?)\",\n    StepCode in (\"BadGateway\", \"GatewayTimeout\") and FailedStep in (\"List_source_files\", \"Get_source_content\", \"Upload_partial\", \"Rename_to_final\"), \"Partner server unreachable (IP not allow-listed or server down?)\",\n    isnotempty(FailedStep), strcat(\"Step \", FailedStep, \" failed (\", StepCode, \")\"),\n    \"Open the run for details\")\n| project EndTime, Pattern, Job, Reason, Step = FailedStep, RunId\n| order by EndTime desc",
         "size": 0,
+        "title": "Failed runs, in plain words (click a row for its steps)",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
-      },
-      "name": "Failures by error code"
+        "visualization": "table",
+        "exportFieldName": "RunId",
+        "exportParameterName": "RunId",
+        "exportDefaultValue": "",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
+    },
+    {
+      "type": 1,
+      "name": "Technical",
+      "content": {
+        "json": "## Technical view"
+      }
     },
     {
       "type": 3,
+      "name": "Runs",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// VERIFY: AzureDiagnostics table and Category, ResultType, WorkerName, and TimeGenerated columns for Automation JobLogs.\nAzureDiagnostics\n| where TimeGenerated >= ago(30d)\n| where Category == \"JobLogs\"\n| summarize Jobs = count() by Status = ResultType, Worker = tostring(WorkerName)\n| order by Jobs desc",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nRuns\n| extend DurationSec = round(datetime_diff(\"millisecond\", EndTime, StartTime) / 1000.0, 1)\n| project EndTime, Pattern, Job, Status, DurationSec, RunId\n| order by EndTime desc\n| take 200",
         "size": 0,
+        "title": "Latest runs (click a row for its steps)",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
-      },
-      "name": "Automation jobs by status and worker"
+        "visualization": "table",
+        "exportFieldName": "RunId",
+        "exportParameterName": "RunId",
+        "exportDefaultValue": "",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Status",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "icons",
+                "thresholdsGrid": [
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Succeeded",
+                    "representation": "success",
+                    "text": "{0}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Failed",
+                    "representation": "4",
+                    "text": "{0}"
+                  },
+                  {
+                    "operator": "Default",
+                    "representation": "more",
+                    "text": "{0}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      }
     },
     {
       "type": 3,
+      "name": "Duration",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nRuns\n| extend DurationSec = datetime_diff(\"millisecond\", EndTime, StartTime) / 1000.0\n| summarize Runs = count(), [\"p50 s\"] = round(percentile(DurationSec, 50), 1), [\"p95 s\"] = round(percentile(DurationSec, 95), 1), [\"max s\"] = round(max(DurationSec), 1) by Pattern, Job\n| order by Pattern asc",
+        "size": 0,
+        "title": "Run duration per job",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      },
+      "customWidth": "50"
+    },
+    {
+      "type": 3,
+      "name": "Automation",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet Jobs = AzureDiagnostics\n    | where TimeGenerated {TimeRange}\n    | where Category == \"JobLogs\" and ResultType in (\"Completed\", \"Failed\", \"Suspended\", \"Stopped\")\n    | summarize arg_max(TimeGenerated, ResultType) by JobId = tostring(JobId_g);\nlet Workers = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where ActionName == \"Track_runbook_success\"\n    | extend T = parse_json(tostring(TrackedProperties))\n    | project JobId = tostring(T.automationJobId), Worker = tostring(T.worker);\nJobs\n| join kind=leftouter Workers on JobId\n| summarize Jobs = count() by Status = ResultType, Worker = iff(isempty(Worker), \"(no result)\", Worker)\n| order by Jobs desc",
+        "size": 0,
+        "title": "Automation jobs by status and worker",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      },
+      "customWidth": "50"
+    },
+    {
+      "type": 3,
+      "name": "Run steps",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let Run = '{RunId}';\nunion\n    (AppRequests | where OperationId == Run | project TimeGenerated, Kind = \"Step\", Name, Success, ResultCode, DurationMs, Detail = \"\"),\n    (AppDependencies | where OperationId == Run | project TimeGenerated, Kind = \"Connector call\", Name = strcat(Type, \" \", Name), Success, ResultCode, DurationMs, Detail = Target),\n    (AppExceptions | where OperationId == Run | project TimeGenerated, Kind = \"Exception\", Name = ProblemId, Success = false, ResultCode = \"\", DurationMs = real(null), Detail = OuterMessage)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Steps of run {RunId} (Application Insights)",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "RunId",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      }
+    },
+    {
+      "type": 1,
+      "name": "Trace help",
+      "content": {
+        "json": "## Trace a correlation ID\nEnter a correlation ID above (from a run report or an alert) to follow it from the workflow into the Automation job."
+      }
+    },
+    {
+      "type": 3,
+      "name": "Trace by correlation ID",
       "content": {
         "version": "KqlItem/1.0",
         "query": "let SelectedCorrelationId = '{CorrelationId}';\nlet WorkflowSteps =\n    LogicAppWorkflowRuntime\n    | where TrackedProperties has SelectedCorrelationId\n    | extend Tracked = parse_json(tostring(TrackedProperties))\n    | where tostring(Tracked.correlationId) == SelectedCorrelationId\n    | project TimeGenerated, Source = \"Logic Apps\", Name = WorkflowName, Step = ActionName, Status, AutomationJobId = tostring(Tracked.automationJobId), Worker = tostring(Tracked.worker), ErrorCode = tostring(Tracked.errorCode);\n// Automation job logs carry Automation's own correlation ID: they are joined through the job ID J3 tracks.\nlet JobIds = WorkflowSteps | where isnotempty(AutomationJobId) | distinct AutomationJobId;\nlet AutomationJobs =\n    AzureDiagnostics\n    | where Category == \"JobLogs\"\n    | where tostring(JobId_g) in (JobIds)\n    | project TimeGenerated, Source = \"Automation job\", Name = RunbookName_s, Step = strcat(\"Job \", ResultType), Status = ResultType, AutomationJobId = tostring(JobId_g), Worker = RunOn_s, ErrorCode = \"\";\nunion WorkflowSteps, AutomationJobs\n| order by TimeGenerated asc",
         "size": 0,
+        "title": "Trace of correlation ID {CorrelationId}",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "resourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"],
-        "visualization": "table"
+        "visualization": "table",
+        "crossComponentResources": [
+          "__LOG_ANALYTICS_WORKSPACE_ID__"
+        ]
       },
-      "name": "Trace by correlation ID"
+      "conditionalVisibility": {
+        "parameterName": "CorrelationId",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      }
     }
   ],
   "isLocked": false,
-  "fallbackResourceIds": ["__LOG_ANALYTICS_WORKSPACE_ID__"]
+  "fallbackResourceIds": [
+    "__LOG_ANALYTICS_WORKSPACE_ID__"
+  ]
 }

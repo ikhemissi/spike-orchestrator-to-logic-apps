@@ -81,6 +81,7 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 - **Schedules** come from the app setting `JOB_RECURRENCE_MINUTES` (default 15). The test runner stretches it to a day while it runs and restores it; if a run is interrupted, set it back to 15 ([D12](DECISIONS.md)).
 - **Secrets**: the app resolves a Key Vault reference when its settings change, so the wrong-password fault points the setting at another secret ([D15](DECISIONS.md)). Rotate a secret with a settings change, not a restart alone.
 - **A blocked NAS** makes an SMB call wait up to 20 minutes; J4 checks the NAS once before the first file ([D16](DECISIONS.md)).
+- **Workbook**: `infra/workbook.json` (a business view per job and pattern, failures in plain words, run steps from Application Insights, the correlation trace). Test changes to its queries in Log Analytics before `azd provision`; `{TimeRange}`, `{RunId}` and `{CorrelationId}` are workbook parameters.
 - **Logs**: the Automation job logs carry Automation's own correlation ID; the workbook joins them to the workflow through the job ID J3 records.
 - **Deployment**: `deploy-logicapp` fails when the runtime reports an unhealthy workflow; an invalid definition otherwise deploys and silently disables its trigger.
 - **Terraform plan** once stopped progressing while reading the state of existing resources; it was interrupted and the next run went through. Use a timeout in automation.
