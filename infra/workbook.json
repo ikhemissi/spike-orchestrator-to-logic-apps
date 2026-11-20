@@ -84,7 +84,7 @@
       "name": "KPIs",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet RunCounts = Runs | summarize Runs = count(), Succeeded = countif(Status == \"Succeeded\"), FailedRuns = countif(Status == \"Failed\");\nlet FileCounts = Summaries | summarize Delivered = sum(Processed), Skipped = sum(Skipped);\nRunCounts | extend Dummy = 1 | join kind=inner (FileCounts | extend Dummy = 1) on Dummy\n| project Metric = pack_array(\"Runs\", \"Success rate\", \"Failed runs\", \"Files delivered\", \"Duplicates skipped\"),\n          Value = pack_array(tostring(Runs), strcat(tostring(round(100.0 * Succeeded / Runs, 1)), \" %\"), tostring(FailedRuns), tostring(Delivered), tostring(Skipped))\n| mv-expand Metric to typeof(string), Value to typeof(string)",
+        "query": "let JobNames = datatable(WorkflowName:string, Job:string, Pattern:string) [\n    \"wf-j1-partner-ftp-to-sftp\", \"J1 Partner A to partner B\", \"1 Partner transfer\",\n    \"wf-j2-ftp-to-sharepoint\", \"J2 Partner A to SharePoint\", \"1 Partner transfer\",\n    \"wf-j4-ftp-sort-to-nas\", \"J4 Partner files to NAS folders\", \"2 File share\",\n    \"wf-j5-nas-folderwatch\", \"J5 NAS folder watch\", \"2 File share\",\n    \"wf-j3-convert-onprem\", \"J3 Convert files on a server\", \"3 Hybrid worker\"];\nlet Runs = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowRunCompleted\"\n    | join kind=inner JobNames on WorkflowName;\nlet Summaries = LogicAppWorkflowRuntime\n    | where TimeGenerated {TimeRange}\n    | where OperationName == \"WorkflowActionCompleted\" and Status == \"Succeeded\"\n    | where ActionName == \"Compose_summary\" or ActionName startswith \"Track_runbook_\" or ActionName in (\"Track_timeout\", \"Track_terminal_failure\", \"Track_missing_runbook_output\")\n    | extend T = parse_json(tostring(TrackedProperties))\n    | join kind=inner JobNames on WorkflowName\n    | project TimeGenerated, RunId, Job, Pattern,\n        Processed = toint(T.filesProcessed), Skipped = toint(T.filesSkipped), Failed = toint(T.filesFailed),\n        Worker = tostring(T.worker), ErrorCode = tostring(T.errorCode);\nlet RunCounts = Runs | summarize Runs = count(), Succeeded = countif(Status == \"Succeeded\"), FailedRuns = countif(Status == \"Failed\");\nlet FileCounts = Summaries | summarize Delivered = sum(Processed), Skipped = sum(Skipped);\nRunCounts | extend Dummy = 1 | join kind=inner (FileCounts | extend Dummy = 1) on Dummy\n| project Metric = pack_array(\"Runs\", \"Success rate\", \"Failed runs\", \"Files delivered\", \"Duplicates skipped\"),\n          Value = pack_array(Runs, round(100.0 * Succeeded / Runs, 1), FailedRuns, Delivered, Skipped),\n          Unit = pack_array(\"runs\", \"%\", \"runs\", \"files\", \"files\")\n| mv-expand Metric to typeof(string), Value to typeof(real), Unit to typeof(string)",
         "size": 4,
         "title": "Overview",
         "timeContext": {
@@ -104,10 +104,23 @@
           },
           "leftContent": {
             "columnMatch": "Value",
+            "formatter": 12,
+            "formatOptions": {
+              "palette": "blue"
+            },
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "maximumSignificantDigits": 4,
+                "maximumFractionDigits": 1
+              }
+            }
+          },
+          "secondaryContent": {
+            "columnMatch": "Unit",
             "formatter": 1
           },
-          "showBorder": true,
-          "size": "auto"
+          "showBorder": true
         }
       }
     },
