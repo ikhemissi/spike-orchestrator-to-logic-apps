@@ -96,7 +96,19 @@
         "visualization": "tiles",
         "crossComponentResources": [
           "__LOG_ANALYTICS_WORKSPACE_ID__"
-        ]
+        ],
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "Metric",
+            "formatter": 1
+          },
+          "leftContent": {
+            "columnMatch": "Value",
+            "formatter": 1
+          },
+          "showBorder": true,
+          "size": "auto"
+        }
       }
     },
     {
