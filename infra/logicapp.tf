@@ -34,6 +34,14 @@ resource "azurerm_storage_account" "logicapp_runtime" {
   tags                            = local.network_tags
 }
 
+# With the content share reached over the virtual network, the platform does not create the share: a new app waits
+# for it and never starts (found in the rebuild from scratch, D17).
+resource "azurerm_storage_share" "logicapp_content" {
+  name               = "${local.logicapp_name}-content"
+  storage_account_id = azurerm_storage_account.logicapp_runtime.id
+  quota              = 50
+}
+
 resource "azurerm_logic_app_standard" "main" {
   name                            = local.logicapp_name
   resource_group_name             = azurerm_resource_group.main.name
@@ -41,6 +49,7 @@ resource "azurerm_logic_app_standard" "main" {
   app_service_plan_id             = azurerm_service_plan.logicapp.id
   storage_account_name            = azurerm_storage_account.logicapp_runtime.name
   storage_account_access_key      = azurerm_storage_account.logicapp_runtime.primary_access_key
+  storage_account_share_name      = azurerm_storage_share.logicapp_content.name
   version                         = "~4"
   use_extension_bundle            = true
   bundle_version                  = "[1.*, 2.0.0)"

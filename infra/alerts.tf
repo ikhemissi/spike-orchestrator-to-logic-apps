@@ -91,8 +91,18 @@ resource "azurerm_monitor_action_group" "alerts" {
   }
 }
 
+# A new (or recovered) workspace is not visible to Azure Monitor alerts at once: creating the rules right after it
+# failed with "The workspace could not be found" during a rebuild from scratch.
+resource "time_sleep" "workspace_ready" {
+  create_duration = "60s"
+  triggers = {
+    workspace_id = module.monitoring.log_analytics_workspace_id
+  }
+}
+
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "alerts" {
-  for_each = local.alert_definitions
+  for_each   = local.alert_definitions
+  depends_on = [time_sleep.workspace_ready]
 
   name                      = each.value.name
   resource_group_name       = azurerm_resource_group.main.name

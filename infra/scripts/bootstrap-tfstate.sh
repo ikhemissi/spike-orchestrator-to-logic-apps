@@ -19,6 +19,12 @@ ENV_ARGS=()
 # Extra tags from the azd environment's RESOURCE_TAGS ("key=value,key=value"), like the platform's resources.
 RESOURCE_TAGS="${RESOURCE_TAGS:-$(azd env get-value "${ENV_ARGS[@]}" RESOURCE_TAGS 2>/dev/null || true)}"
 TAGS=(purpose=terraform-state)
+# Without them, subscription policies may change the state store (a tenant disabled its public access overnight).
+# azd env get-value prints its errors on stdout, so only "key=value" entries are kept.
+IFS=',' read -r -a EXTRA_TAGS <<<"$RESOURCE_TAGS"
+for tag in "${EXTRA_TAGS[@]}"; do
+  [[ "$tag" =~ ^[A-Za-z0-9_.-]+=[^[:space:]]*$ ]] && TAGS+=("$tag")
+done
 IFS=',' read -ra EXTRA_TAGS <<< "$RESOURCE_TAGS"
 for tag in "${EXTRA_TAGS[@]}"; do
   tag="$(echo "$tag" | xargs)"
