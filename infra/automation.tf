@@ -102,7 +102,9 @@ resource "azurerm_virtual_machine_extension" "hybrid_worker" {
     AutomationAccountURL = azurerm_automation_account.main.hybrid_service_url
   })
 
-  depends_on = [azurerm_automation_hybrid_runbook_worker.worker]
+  # After the setup script: the worker service keeps the PATH it starts with, and jobs that run as Local System (T11)
+  # would not find PowerShell 7 if it was installed after the service started (rebuild from scratch, D19).
+  depends_on = [azurerm_automation_hybrid_runbook_worker.worker, azurerm_virtual_machine_extension.worker_setup]
 }
 
 resource "azurerm_monitor_diagnostic_setting" "automation" {

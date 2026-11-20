@@ -49,11 +49,12 @@ function Assert {
     }
     $report = (Get-ScenarioRunReport -Run $Run -Job 'J3').Body
     $details = ConvertFrom-ScenarioReportDetail -Report $report
-    if ($details.runAs -ne 'hw01\svc-azauto') {
-        throw 'J3 output did not report runAs as hw01\svc-azauto.'
-    }
-    if ($details.worker -notmatch 'hw01|vm-hw01') {
+    # With the second worker (ENABLE_SECOND_WORKER), either worker may pick up the job.
+    if ($details.worker -notmatch '^hw0[12]$') {
         throw "J3 report recorded unexpected worker '$($details.worker)'."
+    }
+    if ($details.runAs -ne "$($details.worker)\svc-azauto") {
+        throw "J3 output reported runAs '$($details.runAs)' instead of $($details.worker)\svc-azauto."
     }
     if ([int]$report.filesProcessed -ne 2 -or [int]$report.filesFailed -ne 0) {
         throw 'J3 report did not record two successfully processed files.'
