@@ -1,6 +1,6 @@
 # Hand-off — Orchestrator to Logic Apps Standard spike
 
-State on **2026-11-20**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
+State on **2026-11-23**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
 
 ## In one paragraph
 
@@ -16,7 +16,7 @@ The spike rebuilds five System Center Orchestrator jobs as Logic Apps Standard w
 | `src/runbooks/` | `Invoke-ConvertAndMove.ps1`, the J3 runbook |
 | `scripts/` | Deploy, seed, reset, inject faults, pause and resume, each as `.sh` and `.ps1`; `check.sh` runs every offline check |
 | `tests/` | `run-all.ps1`, the scenario scripts `T01`–`T18`, the alert scenarios under `scenarios/alerts/`, unit tests |
-| `docs/` | Specification, decisions (D1–D16), questions, findings, architecture, demo runbook, retest plan, CI/CD, test report |
+| `docs/` | Specification, decisions (D1–D19), questions, findings, architecture, demo runbook, retest plan, CI/CD, test report |
 
 ## How to run it
 
@@ -85,6 +85,13 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 - **Logs**: the Automation job logs carry Automation's own correlation ID; the workbook joins them to the workflow through the job ID J3 records.
 - **Deployment**: `deploy-logicapp` fails when the runtime reports an unhealthy workflow; an invalid definition otherwise deploys and silently disables its trigger.
 - **Terraform plan** once stopped progressing while reading the state of existing resources; it was interrupted and the next run went through. Use a timeout in automation.
+
+## Current state of the environment (2026-11-23)
+
+- Paused since 12:45: VMs deallocated, job workflows disabled, schedule 15 minutes. All other resources (Logic App, Key Vault, Application Insights, the workbook and its data) are in place.
+- Quick check after the weekend: T01, T02, T06, T08 and T14 passed.
+- Demo activity was generated between 11:10 and 12:40: about 300 runs, new files for every job, a few duplicates, quarantined files and three J3 partial failures (a malformed file each time). In the workbook, choose a time range that covers that window.
+- Before the demo: `bash scripts/resume-environment.sh` (about 10 minutes); files uploaded in the last round are processed right after.
 
 ## Next steps
 
