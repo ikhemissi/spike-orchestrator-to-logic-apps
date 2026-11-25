@@ -1,6 +1,6 @@
 # Hand-off — Orchestrator to Logic Apps Standard spike
 
-State on **2026-11-23**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
+State on **2026-11-25**. Read this first; [FINDINGS.md](FINDINGS.md) has the answers and their evidence, [SPEC.md](SPEC.md) the full requirements.
 
 ## In one paragraph
 
@@ -86,12 +86,10 @@ Outside the scenarios, `alert-workflow-failed`, `alert-runbook-failed`, `alert-h
 - **Deployment**: `deploy-logicapp` fails when the runtime reports an unhealthy workflow; an invalid definition otherwise deploys and silently disables its trigger.
 - **Terraform plan** once stopped progressing while reading the state of existing resources; it was interrupted and the next run went through. Use a timeout in automation.
 
-## Current state of the environment (2026-11-23)
+## Current state of the environment (2026-11-25)
 
-- Paused since 12:45: VMs deallocated, job workflows disabled, schedule 15 minutes. All other resources (Logic App, Key Vault, Application Insights, the workbook and its data) are in place.
-- Quick check after the weekend: T01, T02, T06, T08 and T14 passed.
-- Demo activity was generated between 11:10 and 12:40: about 300 runs, new files for every job, a few duplicates, quarantined files and three J3 partial failures (a malformed file each time). In the workbook, choose a time range that covers that window.
-- Before the demo: `bash scripts/resume-environment.sh` (about 10 minutes); files uploaded in the last round are processed right after.
+- The environment was removed with `azd down --purge` on 2026-11-25; nothing remains in the subscription except the shared Terraform state store.
+- To recreate it: the steps in [How to run it](#how-to-run-it) (`azd provision`, then `scripts/deploy-logicapp.sh`), about 15 minutes; the rebuild of 2026-11-20 is in the [test report](TEST-REPORT.md).
 
 ## Next steps
 
